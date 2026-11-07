@@ -26,6 +26,7 @@ HEART = "❤️"
 HEART_NAMES = {"❤️", "❤"}
 SAVE_PREFIX = "jc:save:"
 UNSAVE_PREFIX = "jc:unsave:"
+DEFAULT_SUPPORT_URL = "https://ko-fi.com/jtatuncsoft/tip"
 COMMAND_REQUESTER_WINDOW = 30  # seconds between "m!play x" and the music bot's reply
 ANNOUNCE_MODES = ("follow", "channel", "off")
 VoiceLike = (discord.VoiceChannel, discord.StageChannel)
@@ -62,6 +63,8 @@ class Config:
         self.dm_on_save = os.getenv("DM_ON_SAVE", "1") == "1"
         # Prefix for text commands like "p!stats" (slash commands work too).
         self.stats_prefix = os.getenv("STATS_PREFIX", "p!").lower()
+        # Tip link shown on the help card and by p!support. Set SUPPORT_URL to "" to hide it.
+        self.support_url = os.getenv("SUPPORT_URL", DEFAULT_SUPPORT_URL).strip()
 
 
 def _component_texts(components) -> list[str]:
@@ -161,7 +164,24 @@ def throwback_embed(play: Play) -> discord.Embed:
     return e
 
 
-def text_help_embed(p: str) -> discord.Embed:
+def support_view(url: str) -> discord.ui.View | None:
+    """A link button (no callback needed; Discord opens the page)."""
+    if not url:
+        return None
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label="Buy me a coffee", emoji="☕", style=discord.ButtonStyle.link, url=url))
+    return view
+
+
+def support_embed(url: str) -> discord.Embed:
+    e = discord.Embed(title="☕ Keep PandaBot running", colour=discord.Colour.from_rgb(255, 94, 91))
+    e.description = ("PandaBot runs 24/7 on a paid server so it never misses a song. "
+                     "If you enjoy it, a coffee helps cover the hosting. Totally optional, and thank you!"
+                     + (f"\n\n{url}" if url else ""))
+    return e
+
+
+def text_help_embed(p: str, support_url: str = "") -> discord.Embed:
     e = discord.Embed(title="🎧 PandaBot commands", colour=discord.Colour.blurple())
     e.description = "\n".join([
         f"`{p}stats [@user] [period]`: someone's music profile",
@@ -174,10 +194,12 @@ def text_help_embed(p: str) -> discord.Embed:
         f"`{p}dj [period]`: whose requests get saved the most",
         f"`{p}match @user [@user]`: taste match",
         f"`{p}throwback`: a random song from the past",
+        f"`{p}support`: help cover PandaBot's server costs",
         f"`{p}backfill [messages]`: (Manage Server) log past plays from old messages, e.g. `{p}backfill 10000`",
         "",
         "**Periods:** `24h` `7d` `2w` `3m` `1y` `today` `week` `month` `all`",
         "**Saving:** tap ❤️, use the menu under any list, type `!like`, or `/save`",
+        *(["", f"☕ Like PandaBot? [Help with server costs]({support_url})"] if support_url else []),
     ])
     e.set_footer(text="All of these also exist as slash commands")
     return e
@@ -592,7 +614,9 @@ class CompanionBot(discord.Client):
             return period or parse_period(default)
 
         if cmd in ("help", "commands", "h", "?"):
-            await reply(text_help_embed(p))
+            await reply(text_help_embed(p, self.config.support_url), support_view(self.config.support_url))
+        elif cmd in ("support", "coffee", "tip", "donate", "kofi"):
+            await reply(support_embed(self.config.support_url), support_view(self.config.support_url))
         elif cmd in ("stats", "me", "profile"):
             who_ = person()
             if who_ == "unknown":
@@ -759,6 +783,11 @@ def register_commands(bot: CompanionBot) -> None:
             return
         added = await bot.save_play(interaction.user.id, play)
         await interaction.response.send_message(_saved_text(added, play), ephemeral=True)
+
+    @tree.command(name="support", description="Help cover PandaBot's server costs")
+    async def support(interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(embed=support_embed(bot.config.support_url),
+                                                view=support_view(bot.config.support_url) or discord.utils.MISSING)
 
     @tree.command(name="dms", description="Get (or stop getting) a DM card for each song you save")
     async def dms(interaction: discord.Interaction, enabled: bool) -> None:

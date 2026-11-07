@@ -503,3 +503,19 @@ def test_commands_register_in_every_server_and_on_join(bot, monkeypatch):
 
     bot.tree.sync = AsyncMock(side_effect=discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "no"))
     assert asyncio.run(bot.register_commands_in(server(4, "x"))) is False  # logged, not raised
+
+
+def test_help_and_support_show_kofi_button(bot):
+    guild, text = _session(bot)
+    for content in ("p!help", "p!coffee", "p!support"):
+        kw = command(bot, guild, text, PANDA, content).call_args.kwargs
+        [button] = kw["view"].children
+        assert button.url == "https://ko-fi.com/jtatuncsoft/tip" and button.style is discord.ButtonStyle.link
+    assert "Help with server costs" in command(bot, guild, text, PANDA, "p!help").call_args.kwargs["embed"].description
+
+
+def test_support_link_can_be_turned_off(bot):
+    bot.config.support_url = ""
+    guild, text = _session(bot)
+    kw = command(bot, guild, text, PANDA, "p!help").call_args.kwargs
+    assert kw["view"] is None and "ko-fi" not in kw["embed"].description

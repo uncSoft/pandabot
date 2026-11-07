@@ -46,6 +46,7 @@ Every song list has ◀ ▶ paging and a **❤️ Save a song from this page** m
 | `p!match @user [@user]` | Taste match based on artists requested, heard and saved |
 | `p!throwback` | A random song from the past, with a Save button |
 | `p!backfill [messages]` | *(Manage Server)* Read old messages to log Jockie's past plays (default: last 2,000 per channel; e.g. `p!backfill 10000`) |
+| `p!support` | Ko-fi link to help cover hosting (also `/support`) |
 | `p!help` | This list |
 
 **Periods:** `24h`, `7d`, `2w`, `3m` (months), `1y`, `today`, `week`, `month`, `all`.
