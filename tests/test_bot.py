@@ -514,10 +514,15 @@ def test_commands_register_in_every_server_and_on_join(bot, monkeypatch):
 
 def test_help_and_support_show_kofi_button(bot):
     guild, text = _session(bot)
-    for content in ("p!help", "p!coffee", "p!support"):
-        kw = command(bot, guild, text, PANDA, content).call_args.kwargs
-        [button] = kw["view"].children
+    invite = "https://discord.com/oauth2/authorize?client_id=999&scope=bot+applications.commands&permissions=117824"
+    help_buttons = command(bot, guild, text, PANDA, "p!help").call_args.kwargs["view"].children
+    assert [(b.label, b.url) for b in help_buttons] == [
+        ("Add to your server", invite), ("Buy me a coffee", "https://ko-fi.com/jtatuncsoft/tip")]
+    for content in ("p!coffee", "p!support"):
+        [button] = command(bot, guild, text, PANDA, content).call_args.kwargs["view"].children
         assert button.url == "https://ko-fi.com/jtatuncsoft/tip" and button.style is discord.ButtonStyle.link
+    [button] = command(bot, guild, text, PANDA, "p!invite").call_args.kwargs["view"].children
+    assert button.url == invite
     assert "Help with server costs" in command(bot, guild, text, PANDA, "p!help").call_args.kwargs["embed"].description
 
 
@@ -525,8 +530,8 @@ def test_support_link_can_be_turned_off(bot):
     bot.config.support_url = ""
     guild, text = _session(bot)
     kw = command(bot, guild, text, PANDA, "p!help").call_args.kwargs
-    assert kw["view"] is None and "ko-fi" not in kw["embed"].description
-
+    assert [b.label for b in kw["view"].children] == ["Add to your server"]
+    assert "ko-fi" not in kw["embed"].description
 
 
 class BlockedUser(FakeUser):
@@ -658,3 +663,26 @@ def test_musicbot_check_reports_how_messages_were_read(bot):
     assert "▶️ Now playing: **GRAILED** — 1nonly" in field.value
     assert "Not a song message: There are no more tracks" in field.value
     assert kw["file"].filename == "music_bot_messages.json" and kw["ephemeral"]
+
+
+
+def test_forgetme_deletes_a_persons_data_after_confirming(bot):
+    guild, text = _session(bot)  # Panda requested two songs and was in voice; Listener saved one
+    run(bot, bot.on_raw_reaction_add(heart(PANDA.id, bot.store.history(1)[0].message_id)))
+    assert bot.store.likes(1, PANDA.id) and bot.store.heard_by(1, PANDA.id)
+
+    forgetme = bot.tree.get_command("forgetme")
+    asked = SimpleNamespace(user=PANDA, response=SimpleNamespace(send_message=AsyncMock()))
+    asyncio.run(forgetme.callback(asked))
+    kw = asked.response.send_message.call_args.kwargs
+    assert kw["ephemeral"] and "can't be undone" in asked.response.send_message.call_args.args[0]
+    confirm, cancel = kw["view"].children
+
+    click = SimpleNamespace(user=PANDA, response=SimpleNamespace(edit_message=AsyncMock()))
+    run(bot, confirm.callback(click))
+    assert "Deleted 1 saved song" in click.response.edit_message.call_args.kwargs["content"]
+    assert bot.store.likes(1, PANDA.id) == [] and bot.store.heard_by(1, PANDA.id) == []
+    assert all(p.requester_id != PANDA.id for p in bot.store.history(1))
+    assert len(bot.store.history(1)) == 2  # the server's play history stays
+    assert bot.deleted_dms  # their DM card was removed too
+    assert [l.title for l in bot.store.likes(1, LISTENER.id)] == ["9MM (KURT COBAIN)"]  # others untouched

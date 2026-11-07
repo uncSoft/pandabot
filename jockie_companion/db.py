@@ -532,6 +532,25 @@ class Store:
             return None
         return self.remove_like(likes[position - 1].id)
 
+    # --- "forget me" ------------------------------------------------------
+    def forget_user(self, user_id: int) -> tuple[list[Like], dict[str, int]]:
+        """Delete everything stored about one person, in every server. Server play history is kept,
+        but their name is taken off the songs they requested. Returns their saves (so the DM cards
+        can be deleted too) and what was removed."""
+        likes = [Like(**r) for r in self.conn.execute(f"SELECT {LIKE_COLUMNS} FROM likes WHERE user_id = ?",
+                                                     (user_id,))]
+        c = self.conn
+        counts = {
+            "saves": c.execute("DELETE FROM likes WHERE user_id = ?", (user_id,)).rowcount,
+            "heard": c.execute("DELETE FROM listeners WHERE user_id = ?", (user_id,)).rowcount,
+            "requests": c.execute("UPDATE plays SET requester_id = NULL, requester_name = NULL"
+                                  " WHERE requester_id = ?", (user_id,)).rowcount,
+        }
+        c.execute("DELETE FROM pending_requests WHERE requester_id = ?", (user_id,))
+        c.execute("DELETE FROM user_settings WHERE user_id = ?", (user_id,))
+        c.commit()
+        return likes, counts
+
     # --- user settings ---------------------------------------------------
     def get_dm_pref(self, user_id: int) -> bool | None:
         row = self.conn.execute("SELECT dm_on_save FROM user_settings WHERE user_id = ?", (user_id,)).fetchone()

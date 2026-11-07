@@ -29,6 +29,8 @@ HEART_NAMES = {"❤️", "❤"}
 SAVE_PREFIX = "jc:save:"
 UNSAVE_PREFIX = "jc:unsave:"
 DEFAULT_SUPPORT_URL = "https://ko-fi.com/jtatuncsoft/tip"
+# View Channels, Send Messages, Embed Links, Attach Files, Read Message History, Add Reactions
+INVITE_PERMISSIONS = 117824
 Notify = Callable[[str], Awaitable[object]]  # tells someone something (privately or in a channel)
 COMMAND_REQUESTER_WINDOW = 30  # seconds between "m!play x" and the music bot's reply
 ANNOUNCE_MODES = ("follow", "channel", "off")
@@ -190,13 +192,31 @@ def throwback_embed(play: Play) -> discord.Embed:
     return e
 
 
-def support_view(url: str) -> discord.ui.View | None:
-    """A link button (no callback needed; Discord opens the page)."""
-    if not url:
+def invite_url(app_id: int) -> str:
+    return (f"https://discord.com/oauth2/authorize?client_id={app_id}"
+            f"&scope=bot+applications.commands&permissions={INVITE_PERMISSIONS}")
+
+
+def link_view(*links: tuple[str, str, str | None]) -> discord.ui.View | None:
+    """Link buttons from (label, emoji, url); ones without a url are skipped. No callbacks needed."""
+    links = tuple(l for l in links if l[2])
+    if not links:
         return None
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Buy me a coffee", emoji="☕", style=discord.ButtonStyle.link, url=url))
+    for label, emoji, url in links:
+        view.add_item(discord.ui.Button(label=label, emoji=emoji, style=discord.ButtonStyle.link, url=url))
     return view
+
+
+def support_view(url: str) -> discord.ui.View | None:
+    return link_view(("Buy me a coffee", "☕", url))
+
+
+def invite_embed() -> discord.Embed:
+    return discord.Embed(
+        title="🐼 Add PandaBot to your server", colour=discord.Colour.blurple(),
+        description="Now-playing cards in voice chat, one-tap ❤️ saving with DM cards, and music stats "
+                    "for Jockie Music (and other music bots via `/musicbot`). Needs Manage Server to add.")
 
 
 def support_embed(url: str) -> discord.Embed:
@@ -221,6 +241,8 @@ def text_help_embed(p: str, support_url: str = "") -> discord.Embed:
         f"`{p}match @user [@user]`: taste match",
         f"`{p}throwback`: a random song from the past",
         f"`{p}support`: help cover PandaBot's server costs",
+        f"`{p}invite`: add PandaBot to another server",
+        "`/forgetme`: delete everything PandaBot stores about you",
         f"`{p}backfill [messages]`: (Manage Server) log past plays from old messages, e.g. `{p}backfill 10000`",
         "",
         "**Periods:** `24h` `7d` `2w` `3m` `1y` `today` `week` `month` `all`",
@@ -703,7 +725,11 @@ class CompanionBot(discord.Client):
             return period or parse_period(default)
 
         if cmd in ("help", "commands", "h", "?"):
-            await reply(text_help_embed(p, self.config.support_url), support_view(self.config.support_url))
+            await reply(text_help_embed(p, self.config.support_url),
+                        link_view(("Add to your server", "➕", invite_url(self.user.id)),
+                                  ("Buy me a coffee", "☕", self.config.support_url)))
+        elif cmd in ("invite", "add"):
+            await reply(invite_embed(), link_view(("Add to your server", "➕", invite_url(self.user.id))))
         elif cmd in ("support", "coffee", "tip", "donate", "kofi"):
             await reply(support_embed(self.config.support_url), support_view(self.config.support_url))
         elif cmd in ("stats", "me", "profile"):
@@ -884,6 +910,38 @@ def register_commands(bot: CompanionBot) -> None:
     async def support(interaction: discord.Interaction) -> None:
         await interaction.response.send_message(embed=support_embed(bot.config.support_url),
                                                 view=support_view(bot.config.support_url) or discord.utils.MISSING)
+
+    @tree.command(name="invite", description="Add PandaBot to another server")
+    async def invite(interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(
+            embed=invite_embed(), view=link_view(("Add to your server", "➕", invite_url(bot.user.id))))
+
+    @tree.command(name="forgetme", description="Delete everything PandaBot stores about you, in every server")
+    async def forgetme(interaction: discord.Interaction) -> None:
+        view = discord.ui.View(timeout=120)
+        confirm = discord.ui.Button(label="Yes, delete my data", style=discord.ButtonStyle.danger)
+        cancel = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+
+        async def do_confirm(i: discord.Interaction) -> None:
+            likes, counts = bot.store.forget_user(i.user.id)
+            for like in likes:
+                bot._spawn(bot.forget_dm(like))
+            log.info("Forgot user %s: %s", i.user.id, counts)
+            await i.response.edit_message(view=None, content=(
+                f"Done. Deleted {counts['saves']} saved song(s) and their DM cards, and "
+                f"{counts['heard']} listening record(s), and took your name off "
+                f"{counts['requests']} song request(s). Server play history keeps the songs themselves."))
+
+        async def do_cancel(i: discord.Interaction) -> None:
+            await i.response.edit_message(view=None, content="Cancelled. Nothing was deleted.")
+
+        confirm.callback, cancel.callback = do_confirm, do_cancel
+        view.add_item(confirm)
+        view.add_item(cancel)
+        await interaction.response.send_message(
+            "This deletes, in **every** server: your saved songs (and their DM cards), the record of songs "
+            "you heard in voice, your DM setting, and your name on songs you requested. It can't be undone.",
+            view=view, ephemeral=True)
 
     @tree.command(name="dms", description="Get (or stop getting) a DM card for each song you save")
     async def dms(interaction: discord.Interaction, enabled: bool) -> None:
