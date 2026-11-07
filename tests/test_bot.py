@@ -569,3 +569,41 @@ def test_blocked_dm_on_save_button_tells_them_privately(bot):
     assert "won't let me DM you" in followup.send.call_args.args[0]
     assert followup.send.call_args.kwargs == {"ephemeral": True}
     assert bot.channel_notices == []
+
+
+def test_heart_on_added_track_saves_that_song(bot):
+    """In the real server Jockie posts 'Added Track' in #music and 'Started playing' in the voice chat."""
+    music = SimpleNamespace(id=20, name="music")
+    guild = make_guild(text_channels=[music])
+    queued = msg(guild, music, JOCKIE, embeds=[added_track("GRAILED", "1nonly", "pandafan42")])
+    asyncio.run(bot.on_message(queued))
+    queued.add_reaction.assert_awaited_once_with("❤️")  # so people know they can heart it
+
+    run(bot, bot.on_raw_reaction_add(heart(LISTENER.id, queued.id)))
+    assert [(l.title, l.artist) for l in bot.store.likes(1, LISTENER.id)] == [("GRAILED", "1nonly")]
+    assert len(LISTENER.dms) == 1  # the DM card, same as any other save
+
+    run(bot, bot.on_raw_reaction_remove(heart(LISTENER.id, queued.id)))
+    assert bot.store.likes(1, LISTENER.id) == []
+    assert bot.deleted_dms == [(LISTENER.dms[0].channel.id, LISTENER.dms[0].id)]
+
+
+def test_like_keywords_outside_the_voice_chat(bot):
+    music = SimpleNamespace(id=20, name="music")
+    general = SimpleNamespace(id=21, name="general")
+    vc = FakeVoice(77, "1", members=[JOCKIE.id])
+    guild = make_guild(vc, text_channels=[music, general])
+
+    async def go():
+        # Jockie: "Added Track" in #music, "Started playing" in the voice chat
+        await bot.on_message(msg(guild, music, JOCKIE, embeds=[added_track("GRAILED", "1nonly", "x")]))
+        await bot.on_message(msg(guild, vc, JOCKIE, embeds=[started_playing("GRAILED", "1nonly")]))
+
+        await bot.on_message(msg(guild, music, LISTENER, content="❤️"))  # Jockie's channel: counts
+        await bot.on_message(msg(guild, general, PANDA, content="!like"))  # explicit command: anywhere
+        await bot.on_message(msg(guild, general, PANDA, content="❤️"))  # stray heart in chat: ignored
+        await bot.wait_for_background()
+
+    asyncio.run(go())
+    assert [l.title for l in bot.store.likes(1, LISTENER.id)] == ["GRAILED"]
+    assert [l.title for l in bot.store.likes(1, PANDA.id)] == ["GRAILED"]

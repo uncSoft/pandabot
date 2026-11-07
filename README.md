@@ -19,14 +19,15 @@ posts and can see which voice channel Jockie is in.
 
 | How | Where |
 |---|---|
-| Tap ❤️ (tap again to unsave) | The bot's now-playing card, or Jockie's own message |
+| Tap ❤️ (tap again to unsave) | The bot's now-playing card, Jockie's "Started playing", or Jockie's "Added Track" (saves that queued song) |
 | **Save song** button | The now-playing card, or `/nowplaying` |
-| Type `!like` or just `❤️` | Voice-channel chat, the announce channel, or Jockie's channel |
-| `/save` | Anywhere in the server |
+| Type `!like` | Any channel |
+| Type just `❤️` | Voice-channel chat, the announce channel, or any channel Jockie posts in |
+| `/save` | Any channel |
 | Right-click a message → Apps → **Save song** | Any older Jockie message |
 
-If you're in a voice channel, these save the song playing **in your channel**, even
-when several Jockie instances are playing in different channels.
+`!like`, ❤️ messages and `/save` save what's playing now. If you're in a voice channel, that's
+the song playing **in your channel**, even when several Jockie instances play in different channels.
 
 ## Stats and history
 

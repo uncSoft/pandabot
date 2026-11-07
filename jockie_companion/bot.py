@@ -374,7 +374,7 @@ class CompanionBot(discord.Client):
             text = message.content.strip().lower()
             if text.startswith(self.config.stats_prefix):
                 await self.handle_text_command(message)
-            elif text in self.config.like_keywords and self.keyword_allowed(message.guild.id, message.channel):
+            elif text in self.config.like_keywords and self.keyword_allowed(message.guild.id, message.channel, text):
                 await self.keyword_like(message)
             elif self.is_play_command(text):
                 self.requests.record(message, time.time())
@@ -430,6 +430,13 @@ class CompanionBot(discord.Client):
         if track.kind == Kind.QUEUED:
             self.store.add_pending(message.guild.id, track.title, requester_id, requester_name,
                                    track.length_seconds)
+            # ❤️ on "Added Track" saves that song too, even before it plays
+            self.store.add_track_message(message.id, message.guild.id, message.channel.id, track)
+            if live and self.config.react:
+                try:
+                    await message.add_reaction(HEART)
+                except discord.HTTPException as exc:
+                    log.warning("Couldn't add reaction (missing Add Reactions permission?): %s", exc)
             return
 
         length = track.length_seconds
@@ -506,6 +513,7 @@ class CompanionBot(discord.Client):
                    play: Play | None = None, on_dm_blocked: Notify | None = None) -> bool:
         """Save a song to someone's list and DM them a card for it. False if it was already saved."""
         like_id = self.store.add_like(guild_id, user_id, title, artist, url, play.id if play else None)
+        log.info("Save by %s: %s — %s (%s)", user_id, title, artist, "new" if like_id else "already saved")
         if like_id is None:
             return False
         if self.dm_enabled(user_id):
@@ -584,17 +592,17 @@ class CompanionBot(discord.Client):
             pass
 
     # --- saving: keywords, reactions, buttons ---------------------------
-    def keyword_allowed(self, guild_id: int, channel: discord.abc.GuildChannel) -> bool:
-        """Only treat a bare '!like' / '❤️' as a save in music-related channels,
-        so a heart in general chat doesn't silently save songs."""
-        if isinstance(channel, VoiceLike):
+    def keyword_allowed(self, guild_id: int, channel: discord.abc.GuildChannel, keyword: str) -> bool:
+        """'!like' is an explicit command and works anywhere. A bare '❤️' message only counts in
+        music-related channels, so a heart in general chat doesn't silently save songs."""
+        if keyword.startswith("!") or isinstance(channel, VoiceLike):
             return True
         _, announce_channel = self.announce_settings(guild_id)
         if channel.id == announce_channel:
             return True
-        if self.config.channel_ids:
-            return channel.id in self.config.channel_ids
-        return self.store.has_plays_in_channel(channel.id)
+        if self.config.channel_ids and channel.id in self.config.channel_ids:
+            return True
+        return self.store.is_music_channel(channel.id)
 
     async def keyword_like(self, message: discord.Message) -> None:
         play = self.current_play(message.guild, message.author, message.channel)
@@ -768,14 +776,21 @@ class CompanionBot(discord.Client):
             return
         if payload.member and payload.member.bot:
             return
+        notify = self.tell_in_channel(payload.channel_id, payload.user_id)
         if play := self.store.play_by_message(payload.message_id):
-            await self.save_play(payload.user_id, play, self.tell_in_channel(payload.channel_id, payload.user_id))
+            await self.save_play(payload.user_id, play, notify)
+        elif queued := self.store.track_by_message(payload.message_id):  # an "Added Track" message
+            guild_id, title, artist, url = queued
+            await self.save(payload.user_id, guild_id, title, artist, url, on_dm_blocked=notify)
 
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
         if payload.emoji.name not in HEART_NAMES or payload.user_id == self.user.id:
             return
         if play := self.store.play_by_message(payload.message_id):
             await self.forget_dm(self.store.remove_like_for_play(payload.user_id, play))
+        elif queued := self.store.track_by_message(payload.message_id):
+            guild_id, title, artist, _ = queued
+            await self.forget_dm(self.store.remove_like_for_track(guild_id, payload.user_id, title, artist))
 
     async def on_interaction(self, interaction: discord.Interaction) -> None:
         if interaction.type is not discord.InteractionType.component:

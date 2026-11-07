@@ -39,6 +39,17 @@ CREATE TABLE IF NOT EXISTS listeners (
 );
 CREATE INDEX IF NOT EXISTS listeners_user ON listeners (user_id);
 
+-- Music-bot messages about a song that hasn't started yet ("Added Track"), so ❤️ on them saves it.
+CREATE TABLE IF NOT EXISTS track_messages (
+    message_id INTEGER PRIMARY KEY,
+    guild_id   INTEGER NOT NULL,
+    channel_id INTEGER NOT NULL,
+    title      TEXT NOT NULL,
+    artist     TEXT,
+    url        TEXT,
+    created_at REAL NOT NULL
+);
+
 -- Our own "now playing" posts, so ❤️ on them saves the right song.
 CREATE TABLE IF NOT EXISTS announcements (
     message_id INTEGER PRIMARY KEY,
@@ -447,11 +458,32 @@ class Store:
         return like
 
     def remove_like_for_play(self, user_id: int, play: Play) -> Like | None:
+        return self.remove_like_for_track(play.guild_id, user_id, play.title, play.artist)
+
+    def remove_like_for_track(self, guild_id: int, user_id: int, title: str, artist: str | None) -> Like | None:
         row = self.conn.execute(
             "SELECT id FROM likes WHERE guild_id = ? AND user_id = ? AND track_key = ?",
-            (play.guild_id, user_id, track_key(play.title, play.artist)),
+            (guild_id, user_id, track_key(title, artist)),
         ).fetchone()
         return self.remove_like(row["id"]) if row else None
+
+    def add_track_message(self, message_id: int, guild_id: int, channel_id: int, track: Track) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO track_messages (message_id, guild_id, channel_id, title, artist, url, created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (message_id, guild_id, channel_id, track.title, track.artist, track.url, time.time()))
+        self.conn.commit()
+
+    def track_by_message(self, message_id: int) -> tuple[int, str, str | None, str | None] | None:
+        """(guild_id, title, artist, url) for an "Added Track" style message."""
+        row = self.conn.execute("SELECT guild_id, title, artist, url FROM track_messages WHERE message_id = ?",
+                                (message_id,)).fetchone()
+        return (row["guild_id"], row["title"], row["artist"], row["url"]) if row else None
+
+    def is_music_channel(self, channel_id: int) -> bool:
+        """Has the music bot posted songs here (playing or queued)?"""
+        return self.has_plays_in_channel(channel_id) or self.conn.execute(
+            "SELECT 1 FROM track_messages WHERE channel_id = ? LIMIT 1", (channel_id,)).fetchone() is not None
 
     def set_like_dm(self, like_id: int, channel_id: int, message_id: int) -> None:
         self.conn.execute("UPDATE likes SET dm_channel_id = ?, dm_message_id = ? WHERE id = ?",
