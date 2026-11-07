@@ -91,7 +91,7 @@ the account banned.
    ```bash
    cp .env.example .env
    ```
-   Fill in `DISCORD_TOKEN` and `GUILD_IDS` (comma-separated if you use a test server too). Turn on Developer Mode
+   Fill in `DISCORD_TOKEN`. Turn on Developer Mode
    (User Settings → Advanced) so you can right-click to copy IDs. Setting
    `MUSIC_BOT_IDS` to Jockie's user ID(s) is recommended.
 4. **Install and run.**
@@ -122,6 +122,12 @@ typed it.
 members (the Discord default). If they don't, the song is still saved. They just
 won't get the card.
 
+## Adding PandaBot to more servers
+
+Anyone with Manage Server can add it with the invite link. Slash commands appear in that server
+within seconds, and history, saves and settings are kept separate per server. There's no config
+to change. To have stats from the server's earlier history, run `p!backfill 10000` there once.
+
 ## Running it 24/7 on Render (recommended)
 
 The repo includes a Render Blueprint ([render.yaml](render.yaml)): an always-on Background
@@ -131,7 +137,6 @@ which a bot can't do.
 1. Render Dashboard → **New → Blueprint** → connect GitHub and pick this repo.
 2. Fill in the values it asks for:
    - `DISCORD_TOKEN`: from the Developer Portal → Bot.
-   - `GUILD_IDS`: comma-separated server IDs.
    - `MUSIC_BOT_IDS`: optional; leave it blank to match "Jockie Music" by name.
 3. Click **Apply**. Logs are on the service's **Logs** tab and should end with
    "Setup check … all channels look good".

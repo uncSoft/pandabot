@@ -48,8 +48,6 @@ class Config:
             c.strip().lower() for c in os.getenv(
                 "PLAY_COMMANDS", "p,play,pn,playnext,playnow,pt,playtop,ps,playskip,search").split(",")
             if c.strip()}
-        # Servers to register slash commands in instantly (comma-separated: test server, real server...).
-        self.guild_ids = _ids(os.getenv("GUILD_IDS") or os.getenv("GUILD_ID"))
         self.db_path = os.getenv("DB_PATH", "data/jockie_companion.db")
         self.react = os.getenv("REACT_TO_NOW_PLAYING", "1") == "1"
         self.dump_path = os.getenv("DEBUG_DUMP_PATH") or None
@@ -256,34 +254,47 @@ class CompanionBot(discord.Client):
         self._tasks: set[asyncio.Task] = set()
         self.requests = RequestTracker()
         self._backfilling: set[int] = set()
+        self._commands_registered = False
         register_commands(self)
 
-    async def setup_hook(self) -> None:
-        if not self.config.guild_ids:
-            await self.tree.sync()  # global; can take a while to show up
-            return
-        for guild_id in self.config.guild_ids:  # instant in each listed server
-            guild = discord.Object(id=guild_id)
-            self.tree.copy_global_to(guild=guild)
-            try:
-                await self.tree.sync(guild=guild)
-            except discord.Forbidden:
-                log.warning("Couldn't add slash commands to server %s. Has the bot been invited there "
-                            "with the applications.commands scope?", guild_id)
+    async def register_commands_in(self, guild: discord.abc.Snowflake) -> bool:
+        """Put the slash commands in one server. Per-server registration shows up within seconds;
+        global registration can take much longer, so every server the bot is in gets its own copy."""
+        self.tree.copy_global_to(guild=guild)
+        try:
+            await self.tree.sync(guild=guild)
+            return True
+        except discord.HTTPException as exc:
+            log.warning("Couldn't add slash commands to server %s (invited without the "
+                        "applications.commands scope?): %s", guild.id, exc)
+            return False
 
     async def on_app_command_completion(self, interaction: discord.Interaction, command) -> None:
         log.info("/%s by %s", command.qualified_name, interaction.user)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        """Someone added PandaBot to a new server: commands appear there with no setup."""
+        log.info("Joined server %s (%s)", guild.name, guild.id)
+        await self.register_commands_in(guild)
+        self._log_setup_check(guild)
+
+    def _log_setup_check(self, guild: discord.Guild) -> None:
+        problems = setup_problems(guild, guild.me)
+        if problems:
+            log.warning("Setup check for %s:\n  - %s", guild.name, "\n  - ".join(problems))
+        else:
+            log.info("Setup check for %s: all channels look good", guild.name)
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (%s) in %d server(s)", self.user, self.user.id, len(self.guilds))
         if not self.guilds:
             log.warning("I'm not in any server yet. Invite me with the OAuth2 URL from the README.")
+        first_ready = not self._commands_registered
+        self._commands_registered = True
         for guild in self.guilds:
-            problems = setup_problems(guild, guild.me)
-            if problems:
-                log.warning("Setup check for %s:\n  - %s", guild.name, "\n  - ".join(problems))
-            else:
-                log.info("Setup check for %s: all channels look good", guild.name)
+            if first_ready:  # on_ready also fires after reconnects; registering once per start is enough
+                await self.register_commands_in(guild)
+            self._log_setup_check(guild)
 
     # --- helpers ---------------------------------------------------------
     def is_music_bot(self, user: discord.abc.User) -> bool:

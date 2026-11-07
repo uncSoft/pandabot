@@ -22,8 +22,6 @@ services:
       # Secrets and per-server values: Render asks for these when you create the Blueprint.
       - key: DISCORD_TOKEN
         sync: false
-      - key: GUILD_IDS
-        sync: false
       - key: MUSIC_BOT_IDS
         sync: false
       - key: ANNOUNCE_MODE

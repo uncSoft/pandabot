@@ -478,3 +478,28 @@ def test_backfill_reads_old_messages(bot):
         m.add_reaction.assert_not_awaited()  # no reactions or announcements on old messages
 
     assert asyncio.run(bot.backfill(guild)) == (1, 0)  # running it again adds nothing
+
+
+def test_commands_register_in_every_server_and_on_join(bot, monkeypatch):
+    from unittest.mock import Mock
+
+    def server(gid, name):
+        return SimpleNamespace(id=gid, name=name, me=None, text_channels=[], voice_channels=[], stage_channels=[])
+
+    test_server, real_server = server(1, "Test Server"), server(2, "//")
+    monkeypatch.setattr(CompanionBot, "guilds", property(lambda self: [test_server, real_server]))
+    bot.tree.sync = AsyncMock()
+    bot.tree.copy_global_to = Mock()
+
+    asyncio.run(bot.on_ready())
+    assert [c.kwargs["guild"].id for c in bot.tree.sync.call_args_list] == [1, 2]
+
+    asyncio.run(bot.on_ready())  # reconnect: no re-registration
+    assert bot.tree.sync.await_count == 2
+
+    newcomer = server(3, "Someone else's server")
+    asyncio.run(bot.on_guild_join(newcomer))
+    assert bot.tree.sync.call_args.kwargs["guild"] is newcomer
+
+    bot.tree.sync = AsyncMock(side_effect=discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "no"))
+    assert asyncio.run(bot.register_commands_in(server(4, "x"))) is False  # logged, not raised
