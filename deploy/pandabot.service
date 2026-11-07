@@ -1,0 +1,23 @@
+[Unit]
+Description=PandaBot (Jockie Music companion for Discord)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pandabot
+WorkingDirectory=/opt/pandabot
+ExecStart=/opt/pandabot/.venv/bin/python -W ignore -m jockie_companion
+Environment=PYTHONUNBUFFERED=1
+# Come back automatically after crashes, network blips and reboots.
+Restart=always
+RestartSec=5
+
+# Hardening: the bot only needs to write its own data folder.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/pandabot/data
+
+[Install]
+WantedBy=multi-user.target

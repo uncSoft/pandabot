@@ -1,0 +1,32 @@
+# Render Blueprint: Dashboard → New → Blueprint → pick this repo.
+# PandaBot runs as a Background Worker (no web port) with a small disk for its database.
+services:
+  - type: worker
+    name: pandabot
+    runtime: python
+    plan: starter            # workers aren't on the free tier; the free tier sleeps, which a bot can't
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -W ignore -m jockie_companion
+    disk:
+      name: pandabot-data
+      mountPath: /var/data   # survives deploys and restarts
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.5
+      - key: DB_PATH
+        value: /var/data/jockie_companion.db
+      - key: DEBUG_DUMP_PATH
+        value: /var/data/samples.jsonl
+      # Secrets and per-server values: Render asks for these when you create the Blueprint.
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: GUILD_IDS
+        sync: false
+      - key: MUSIC_BOT_IDS
+        sync: false
+      - key: ANNOUNCE_MODE
+        value: follow
+      - key: STATS_PREFIX
+        value: p!
