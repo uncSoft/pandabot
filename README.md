@@ -23,6 +23,17 @@ follows the music bot and adds the missing pieces:
 
 PandaBot never joins voice or plays music. It only reads what the music bot posts.
 
+## Screenshots
+
+<table>
+<tr><td width="50%" valign="top"><img src="site/img/commands/heart.png" alt="Tap ❤️ on the music bot's post to save the song"><br><sub>Tap ❤️ on the music bot's post to save the song</sub></td><td width="50%" valign="top"><img src="site/img/commands/dm-card.png" alt="Every save lands in your DMs"><br><sub>Every save lands in your DMs</sub></td></tr>
+<tr><td width="50%" valign="top"><img src="site/img/commands/stats.png" alt="/stats: someone's music profile"><br><sub><code>/stats</code>: someone's music profile</sub></td><td width="50%" valign="top"><img src="site/img/commands/top.png" alt="/top: server charts"><br><sub><code>/top</code>: server charts</sub></td></tr>
+<tr><td width="50%" valign="top"><img src="site/img/commands/likes.png" alt="/likes: your saved songs, with paging"><br><sub><code>/likes</code>: your saved songs, with paging</sub></td><td width="50%" valign="top"><img src="site/img/commands/match.png" alt="/match: taste match with a friend"><br><sub><code>/match</code>: taste match with a friend</sub></td></tr>
+<tr><td width="50%" valign="top"><img src="site/img/commands/dj.png" alt="/dj: whose picks get saved most"><br><sub><code>/dj</code>: whose picks get saved most</sub></td><td width="50%" valign="top"><img src="site/img/commands/save-song-menu.png" alt="Right-click any old song → Apps → Save song"><br><sub>Right-click any old song → Apps → Save song</sub></td></tr>
+</table>
+
+Every command, with a screenshot: **[pandabot-site.onrender.com/commands.html](https://pandabot-site.onrender.com/commands.html)**. They're generated from the real reply code by `tools/screenshots.py`, using a made-up demo server.
+
 ## How it's built
 
 | | |
