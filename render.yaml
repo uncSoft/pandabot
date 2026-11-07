@@ -17,8 +17,6 @@ services:
         value: 3.12.5
       - key: DB_PATH
         value: /var/data/jockie_companion.db
-      - key: DEBUG_DUMP_PATH
-        value: /var/data/samples.jsonl
       # Secrets and per-server values: Render asks for these when you create the Blueprint.
       - key: DISCORD_TOKEN
         sync: false
