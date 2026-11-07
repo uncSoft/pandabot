@@ -124,6 +124,13 @@ typed it.
 members (the Discord default). If they don't, the song is still saved. They just
 won't get the card.
 
+## Website, invite and support
+
+- Website: https://pandabot-site.onrender.com (privacy policy at `/privacy.html`, terms at `/terms.html`). It's a free
+  Render static site built from `site/`, so pushing changes to `site/` updates it.
+- Invite: the **Add App** button on PandaBot's Discord profile, `p!invite` / `/invite`, or the help card button.
+- Support server: https://discord.gg/vvShzeYx5E (`SUPPORT_SERVER_URL`). Anyone can delete their data with `/forgetme`.
+
 ## Other music bots
 
 Jockie is followed in every server. A server can follow more music bots too (Manage Server):
