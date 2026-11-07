@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PandaBot Privacy Policy</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Privacy policy</h1>
+  <p class="updated">Last updated: November 6, 2026</p>
+
+  <p>PandaBot is a Discord bot that adds song saving, now-playing cards and music stats to servers that use a
+  music bot such as Jockie Music. This policy explains what PandaBot stores, why, and how to delete it.
+  PandaBot is run by an independent developer ("we") and is not affiliated with Discord or Jockie Music.</p>
+
+  <h2>What PandaBot reads</h2>
+  <p>PandaBot can see messages in the channels it has access to. It uses that to:</p>
+  <ul>
+    <li>read the posts of the music bots a server follows ("Now playing", "Added Track"),</li>
+    <li>notice its own commands (such as <code>p!stats</code> and <code>!like</code>), and</li>
+    <li>notice music-bot commands (such as <code>m!play</code>) so a song can be credited to whoever requested it.</li>
+  </ul>
+  <p>It does <strong>not</strong> store the text of people's messages, only music-bot posts as listed below. It also sees who is in a voice channel, but it never joins voice
+  and never hears or records audio.</p>
+
+  <h2>What PandaBot stores</h2>
+  <table>
+    <tr><th>Data</th><th>Why</th></tr>
+    <tr><td>Songs played in a server: title, artist, link, time, channel, and the Discord user ID and display name of the person who requested it</td><td>Play history, <code>p!played</code>, charts and stats</td></tr>
+    <tr><td>The user IDs of people in the voice channel when a song started</td><td><code>p!heard</code> ("what was that song?") and taste matching</td></tr>
+    <tr><td>Songs you save, with the server they were saved in, and the ID of the DM card we sent you</td><td>Your saved list, and deleting the card when you unsave</td></tr>
+    <tr><td>Your DM preference (<code>/dms</code>)</td><td>So we only DM you if you want it</td></tr>
+    <tr><td>Server settings: announcement channel and mode, and which music bots the server follows</td><td>Running the bot the way the server chose</td></tr>
+    <tr><td>Copies of recent music-bot posts (for example Jockie's "Started playing" and "Added Track" messages, which can include a requester's name)</td><td>Checking and fixing how PandaBot reads them (<code>/musicbot check</code>)</td></tr>
+    <tr><td>Operational logs, which include user IDs and song titles (for example "Save by &lt;user ID&gt;")</td><td>Fixing problems. Kept by our hosting provider for a limited time</td></tr>
+  </table>
+  <p>We don't collect email addresses, IP addresses, payment details, or anything from outside Discord.</p>
+
+  <h2>How it's used and shared</h2>
+  <p>Data is used only to provide PandaBot's features. It is never sold or used for advertising. Other members of a
+  server can see stats about that server through PandaBot's commands, including what you requested and how many
+  songs you saved. Data from one server is not shown in another, except that <code>/forgetme</code> works across all of them.</p>
+  <p>PandaBot runs on <a href="https://render.com">Render</a> (in the United States), which stores the database and logs on our behalf.
+  Messages and DMs travel through Discord, under <a href="https://discord.com/privacy">Discord's privacy policy</a>.</p>
+
+  <h2>How long it's kept</h2>
+  <p>Saved songs, play history and listening records are kept until they are deleted as described below, so
+  stats and your saved list keep working. Daily backups may hold deleted data for up to 14 days.</p>
+
+  <h2>Deleting your data</h2>
+  <ul>
+    <li><strong>Everything about you:</strong> run <code>/forgetme</code> in any server with PandaBot. After you confirm, it deletes your saved songs
+    (and their DM cards), the record of songs you heard in voice and your DM preference in every server, and removes
+    your name and ID from songs you requested. It can't be undone.</li>
+    <li><strong>One song:</strong> tap its ❤️ again, press "Remove from list" on its DM card, or use <code>/unlike</code>.</li>
+    <li><strong>A whole server's data:</strong> a server admin can ask us using the contact below.</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>PandaBot is for Discord users, and Discord requires users to be at least 13 (or older where local law requires).
+  We don't knowingly collect data from anyone younger.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, we'll update the date above. Significant changes will also be mentioned in <code>p!help</code>.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or deletion requests: join the <a href="https://discord.gg/vvShzeYx5E">PandaBot support server</a> and message the developer there.</p>
+
+  <footer><a href="index.html">PandaBot</a> · <a href="terms.html">Terms of service</a> · <a href="https://discord.gg/vvShzeYx5E">Support server</a></footer>
+</main>
+</body>
+</html>

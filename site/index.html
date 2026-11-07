@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PandaBot for Discord</title>
+  <meta name="description" content="A companion for Jockie Music: now-playing cards in voice chat, one-tap song saving with DM cards, and music stats.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div class="logo">🐼</div>
+    <h1>PandaBot</h1>
+    <p class="lede">A companion for Jockie Music. Never lose a song you heard in voice chat again.</p>
+    <div class="actions">
+      <a class="button" href="https://discord.com/oauth2/authorize?client_id=1568403551665782835&amp;scope=bot+applications.commands&amp;permissions=117824">Add to Discord</a>
+      <a class="button secondary" href="https://discord.gg/vvShzeYx5E">Support server</a>
+      <a class="button secondary" href="https://ko-fi.com/jtatuncsoft/tip">☕ Buy me a coffee</a>
+    </div>
+  </header>
+
+  <section class="grid">
+    <div class="card"><h3>🎧 Now-playing cards</h3><p>Every song gets a card in the voice channel's chat: title, artist, who requested it, and a YouTube link.</p></div>
+    <div class="card"><h3>❤️ One-tap saving</h3><p>Tap the heart, press Save, type <code>!like</code> or use <code>/save</code>. Each save is DMed to you, so your DMs become your playlist.</p></div>
+    <div class="card"><h3>📊 Stats</h3><p><code>p!stats</code>, <code>p!top</code>, <code>p!dj</code>, <code>p!match @friend</code>, and <code>p!heard</code> for "what was that song?"</p></div>
+    <div class="card"><h3>🔌 Other music bots</h3><p>Jockie works out of the box. Add others with <code>/musicbot add</code>.</p></div>
+  </section>
+
+  <h2>Getting started</h2>
+  <ol>
+    <li>Add PandaBot to a server where Jockie Music plays (you need Manage Server).</li>
+    <li>Play a song with Jockie. PandaBot posts a card in that voice channel's chat.</li>
+    <li>Optional: run <code>p!backfill 10000</code> to pull in the server's past songs, then try <code>p!top</code>.</li>
+  </ol>
+  <p>PandaBot never joins voice and doesn't play music. It reads what your music bot posts. <code>p!help</code> lists everything.</p>
+
+  <footer>
+    <a href="privacy.html">Privacy policy</a> · <a href="terms.html">Terms of service</a> · <a href="https://discord.gg/vvShzeYx5E">Support server</a> · <a href="https://ko-fi.com/jtatuncsoft/tip">Ko-fi</a>
+  </footer>
+</main>
+</body>
+</html>

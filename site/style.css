@@ -1,0 +1,53 @@
+:root {
+  --bg: #f7f7fb;
+  --card: #ffffff;
+  --text: #1d1f27;
+  --muted: #5b6070;
+  --accent: #5865f2;
+  --accent-text: #ffffff;
+  --border: #e3e5ee;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15161b;
+    --card: #1e2028;
+    --text: #e9eaf0;
+    --muted: #a3a8b8;
+    --accent: #7983f5;
+    --accent-text: #0e0f14;
+    --border: #2c2f3a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 760px; margin: 0 auto; padding: 48px 16px 64px; }
+header.hero { text-align: center; padding: 24px 0 8px; }
+.logo { font-size: 56px; line-height: 1; }
+h1 { font-size: 2.2rem; margin: 12px 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 1.25rem; margin: 32px 0 8px; }
+h3 { font-size: 1.05rem; margin: 20px 0 4px; }
+p, li { color: var(--text); }
+.lede { color: var(--muted); font-size: 1.1rem; margin: 0 auto 24px; max-width: 560px; }
+.button {
+  display: inline-block; background: var(--accent); color: var(--accent-text);
+  padding: 12px 22px; border-radius: 10px; font-weight: 600; text-decoration: none;
+}
+.button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 32px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.card h3 { margin-top: 0; }
+.card p { margin: 0; color: var(--muted); }
+code { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 0.92em; }
+a { color: var(--accent); }
+footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9rem; text-align: center; }
+footer a { color: var(--muted); }
+.updated { color: var(--muted); font-size: 0.95rem; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 0.9rem; }

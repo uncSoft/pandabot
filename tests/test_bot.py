@@ -517,12 +517,13 @@ def test_help_and_support_show_kofi_button(bot):
     invite = "https://discord.com/oauth2/authorize?client_id=999&scope=bot+applications.commands&permissions=117824"
     help_buttons = command(bot, guild, text, PANDA, "p!help").call_args.kwargs["view"].children
     assert [(b.label, b.url) for b in help_buttons] == [
-        ("Add to your server", invite), ("Buy me a coffee", "https://ko-fi.com/jtatuncsoft/tip")]
+        ("Add to your server", invite), ("Support server", "https://discord.gg/vvShzeYx5E"),
+        ("Buy me a coffee", "https://ko-fi.com/jtatuncsoft/tip")]
     for content in ("p!coffee", "p!support"):
         [button] = command(bot, guild, text, PANDA, content).call_args.kwargs["view"].children
         assert button.url == "https://ko-fi.com/jtatuncsoft/tip" and button.style is discord.ButtonStyle.link
-    [button] = command(bot, guild, text, PANDA, "p!invite").call_args.kwargs["view"].children
-    assert button.url == invite
+    add, support = command(bot, guild, text, PANDA, "p!invite").call_args.kwargs["view"].children
+    assert (add.url, support.url) == (invite, "https://discord.gg/vvShzeYx5E")
     assert "Help with server costs" in command(bot, guild, text, PANDA, "p!help").call_args.kwargs["embed"].description
 
 
@@ -530,7 +531,7 @@ def test_support_link_can_be_turned_off(bot):
     bot.config.support_url = ""
     guild, text = _session(bot)
     kw = command(bot, guild, text, PANDA, "p!help").call_args.kwargs
-    assert [b.label for b in kw["view"].children] == ["Add to your server"]
+    assert [b.label for b in kw["view"].children] == ["Add to your server", "Support server"]
     assert "ko-fi" not in kw["embed"].description
 
 

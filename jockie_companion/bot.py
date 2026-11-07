@@ -29,6 +29,7 @@ HEART_NAMES = {"❤️", "❤"}
 SAVE_PREFIX = "jc:save:"
 UNSAVE_PREFIX = "jc:unsave:"
 DEFAULT_SUPPORT_URL = "https://ko-fi.com/jtatuncsoft/tip"
+DEFAULT_SUPPORT_SERVER = "https://discord.gg/vvShzeYx5E"
 # View Channels, Send Messages, Embed Links, Attach Files, Read Message History, Add Reactions
 INVITE_PERMISSIONS = 117824
 Notify = Callable[[str], Awaitable[object]]  # tells someone something (privately or in a channel)
@@ -70,6 +71,8 @@ class Config:
         self.stats_prefix = os.getenv("STATS_PREFIX", "p!").lower()
         # Tip link shown on the help card and by p!support. Set SUPPORT_URL to "" to hide it.
         self.support_url = os.getenv("SUPPORT_URL", DEFAULT_SUPPORT_URL).strip()
+        # Invite to PandaBot's support server (help card, invite card). "" hides it.
+        self.support_server = os.getenv("SUPPORT_SERVER_URL", DEFAULT_SUPPORT_SERVER).strip()
 
 
 def _component_texts(components) -> list[str]:
@@ -727,9 +730,11 @@ class CompanionBot(discord.Client):
         if cmd in ("help", "commands", "h", "?"):
             await reply(text_help_embed(p, self.config.support_url),
                         link_view(("Add to your server", "➕", invite_url(self.user.id)),
+                                  ("Support server", "💬", self.config.support_server),
                                   ("Buy me a coffee", "☕", self.config.support_url)))
         elif cmd in ("invite", "add"):
-            await reply(invite_embed(), link_view(("Add to your server", "➕", invite_url(self.user.id))))
+            await reply(invite_embed(), link_view(("Add to your server", "➕", invite_url(self.user.id)),
+                                                  ("Support server", "💬", self.config.support_server)))
         elif cmd in ("support", "coffee", "tip", "donate", "kofi"):
             await reply(support_embed(self.config.support_url), support_view(self.config.support_url))
         elif cmd in ("stats", "me", "profile"):
@@ -914,7 +919,8 @@ def register_commands(bot: CompanionBot) -> None:
     @tree.command(name="invite", description="Add PandaBot to another server")
     async def invite(interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
-            embed=invite_embed(), view=link_view(("Add to your server", "➕", invite_url(bot.user.id))))
+            embed=invite_embed(), view=link_view(("Add to your server", "➕", invite_url(bot.user.id)),
+                                                 ("Support server", "💬", bot.config.support_server)))
 
     @tree.command(name="forgetme", description="Delete everything PandaBot stores about you, in every server")
     async def forgetme(interaction: discord.Interaction) -> None:
