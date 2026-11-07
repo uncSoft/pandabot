@@ -26,10 +26,10 @@ PandaBot never joins voice or plays music. It only reads what the music bot post
 ## Screenshots
 
 <table>
-<tr><td width="50%" valign="top"><img src="site/img/commands/heart.png" alt="Tap ❤️ on the music bot's post to save the song"><br><sub>Tap ❤️ on the music bot's post to save the song</sub></td><td width="50%" valign="top"><img src="site/img/commands/dm-card.png" alt="Every save lands in your DMs"><br><sub>Every save lands in your DMs</sub></td></tr>
-<tr><td width="50%" valign="top"><img src="site/img/commands/stats.png" alt="/stats: someone's music profile"><br><sub><code>/stats</code>: someone's music profile</sub></td><td width="50%" valign="top"><img src="site/img/commands/top.png" alt="/top: server charts"><br><sub><code>/top</code>: server charts</sub></td></tr>
-<tr><td width="50%" valign="top"><img src="site/img/commands/likes.png" alt="/likes: your saved songs, with paging"><br><sub><code>/likes</code>: your saved songs, with paging</sub></td><td width="50%" valign="top"><img src="site/img/commands/match.png" alt="/match: taste match with a friend"><br><sub><code>/match</code>: taste match with a friend</sub></td></tr>
-<tr><td width="50%" valign="top"><img src="site/img/commands/dj.png" alt="/dj: whose picks get saved most"><br><sub><code>/dj</code>: whose picks get saved most</sub></td><td width="50%" valign="top"><img src="site/img/commands/save-song-menu.png" alt="Right-click any old song → Apps → Save song"><br><sub>Right-click any old song → Apps → Save song</sub></td></tr>
+<tr><td width="50%" valign="top"><img src="site/img/commands/heart.png" alt="Tap ❤️ on the music bot's post (or type !like) to save the song"><br><sub>Tap ❤️ on the music bot's post (or type <code>!like</code>) to save the song</sub></td><td width="50%" valign="top"><img src="site/img/commands/dm-card.png" alt="Every save lands in your DMs"><br><sub>Every save lands in your DMs</sub></td></tr>
+<tr><td width="50%" valign="top"><img src="site/img/commands/stats.png" alt="p!stats: someone's music profile"><br><sub><code>p!stats</code>: someone's music profile</sub></td><td width="50%" valign="top"><img src="site/img/commands/top.png" alt="p!top: server charts"><br><sub><code>p!top</code>: server charts</sub></td></tr>
+<tr><td width="50%" valign="top"><img src="site/img/commands/likes.png" alt="p!saved: your saved songs, with paging"><br><sub><code>p!saved</code>: your saved songs, with paging</sub></td><td width="50%" valign="top"><img src="site/img/commands/match.png" alt="p!match @friend: taste match"><br><sub><code>p!match @friend</code>: taste match</sub></td></tr>
+<tr><td width="50%" valign="top"><img src="site/img/commands/dj.png" alt="p!dj: whose picks get saved most"><br><sub><code>p!dj</code>: whose picks get saved most</sub></td><td width="50%" valign="top"><img src="site/img/commands/save-song-menu.png" alt="Right-click any old song → Apps → Save song"><br><sub>Right-click any old song → Apps → Save song</sub></td></tr>
 </table>
 
 Every command, with a screenshot: **[pandabot-site.onrender.com/commands.html](https://pandabot-site.onrender.com/commands.html)**. They're generated from the real reply code by `tools/screenshots.py`, using a made-up demo server.
@@ -93,7 +93,8 @@ Every song list has ◀ ▶ paging and a **❤️ Save a song from this page** m
 | `p!match @user [@user]` | Taste match based on artists requested, heard and saved |
 | `p!throwback` | A random song from the past, with a Save button |
 | `p!backfill [messages]` | *(Manage Server)* Read old messages to log Jockie's past plays (default: last 2,000 per channel; e.g. `p!backfill 10000`) |
-| `p!support` | Ko-fi link to help cover hosting (also `/support`) |
+| `p!support` | Ko-fi link to help cover hosting |
+| `p!invite` | Link to add PandaBot to another server |
 | `p!help` | This list |
 
 **Periods:** `24h`, `7d`, `2w`, `3m` (months), `1y`, `today`, `week`, `month`, `all`.
@@ -108,10 +109,10 @@ straight away (empty queue) have no length.
 
 | Command | What it does |
 |---|---|
-| `/save` | Save the current song |
+| `!like` or `/save` | Save the current song (`!like` works in any channel) |
 | `/nowplaying` | Show the current song with a Save button |
-| `/likes [member] [public]` | Saved songs, paged |
-| `/unlike <number>` | Remove a song by its number in `/likes` (and its DM card) |
+| `p!saved [@user]` or `/likes [member] [public]` | Saved songs, paged |
+| `/unlike <number>` | Remove a song by its number in `p!saved` (and its DM card) |
 | `/export` | Download your saved songs as a CSV |
 | `/dms <on/off>` | Turn the DM card on save on or off for yourself |
 | `/announce [mode] [channel]` | *(Manage Server)* `follow` Jockie's voice chat, a fixed `channel`, or `off` |

@@ -197,9 +197,13 @@ def interaction(user: Person, channel: Channel, sink: list, data: dict | None = 
 
 def message(author: Person, channel: Channel, content: str = "", embeds=(), sink: list | None = None, mentions=()):
     async def reply(content=None, **kw):
+        entry = {"content": content, **kw}
         if sink is not None:
-            sink.append({"content": content, **kw})
-        return SimpleNamespace(id=next(IDS), edit=AsyncMock())
+            sink.append(entry)
+
+        async def edit(**changes):
+            entry.update(changes, edited=True)
+        return SimpleNamespace(id=next(IDS), edit=edit)
 
     return SimpleNamespace(id=next(IDS), guild=GUILD, channel=channel, author=author, content=content,
                            embeds=list(embeds), components=[], interaction_metadata=None, reference=None,
@@ -307,7 +311,7 @@ async def build_scenes() -> list[Scene]:
         "<b>Remove from list</b> takes it back out.", "@ PandaBot", [from_reply(PANDA.dms[-1])])
 
     add("save", "Saving songs", "/save",
-        "Save the song that's playing without leaving the chat.", "# music",
+        "The slash-command version of <code>!like</code>: saves the song that's playing.", "# music",
         [await slash(ROSA, "save")])
 
     sink = []
@@ -321,12 +325,12 @@ async def build_scenes() -> list[Scene]:
         "Right-click any music-bot message, even an old one, and pick <b>Apps → Save song</b>.", "# music",
         [jockie, from_reply(sink[0], used="Save song", used_by=MOSS)], overlay=menu)
 
-    add("likes", "Saving songs", "/likes",
-        "Page through your saved songs (or someone else's), and save from their list straight into yours.",
-        "# music", [await slash(PANDA, "likes")])
+    add("likes", "Saving songs", "p!saved  ·  /likes",
+        "Page through your saved songs (or someone else's: <code>p!saved @name</code>), and save from their "
+        "list straight into yours.", "# music", await typed(PANDA, "p!saved"))
 
     add("unlike", "Saving songs", "/unlike",
-        "Remove a song by its number in <code>/likes</code>. Its DM card disappears too.", "# music",
+        "Remove a song by its number in <code>p!saved</code>. Its DM card disappears too.", "# music",
         [await slash(PANDA, "unlike", number=3)])
     add("export", "Saving songs", "/export",
         "Download your saved songs as a spreadsheet (CSV) with Spotify and YouTube links.", "# music",
@@ -335,31 +339,33 @@ async def build_scenes() -> list[Scene]:
         "Turn the DM cards on or off for yourself.", "# music", [await slash(PANDA, "dms", enabled=True)])
 
     # Stats
-    add("stats", "Stats", "/stats  ·  p!stats",
+    add("stats", "Stats", "p!stats  ·  /stats",
         "Someone's music profile: requests, top artists, how many saves, and how often other people "
-        "save the songs they pick.", "# music", [await slash(PANDA, "stats")])
-    add("played", "Stats", "/played  ·  p!played",
+        "save the songs they pick. Add <code>@name</code> or a period like <code>7d</code>.", "# music",
+        await typed(PANDA, "p!stats"))
+    add("played", "Stats", "p!played  ·  /played",
         "Everything someone requested in a time period, with paging and a menu to save any of it.",
-        "# music", [await slash(PANDA, "played", member=JUNI, period=choice("30d"))])
+        "# music", await typed(PANDA, f"p!played <@{JUNI.id}> 30d", mentions=[JUNI]))
     add("name-shortcut", "Stats", "p!<name>",
         "Type someone's name as the command, like <code>p!juniper 30d</code>, to see what they played.",
         "# music", await typed(KAI, "p!juniper 30d"))
-    add("heard", "Stats", "/heard",
+    add("heard", "Stats", "p!heard  ·  /heard",
         "\"What was that song?\" Everything that played while you were in voice.", "# music",
-        [await slash(PANDA, "heard")])
-    add("history", "Stats", "/history",
+        await typed(PANDA, "p!heard"))
+    add("history", "Stats", "p!history  ·  /history",
         "Everything played in the server, newest first, with who asked for it.", "# music",
-        [await slash(PANDA, "history")])
-    add("top", "Stats", "/top  ·  p!top",
+        await typed(PANDA, "p!history"))
+    add("top", "Stats", "p!top  ·  /top",
         "Server charts: most played songs, top artists, top requesters and the most-saved songs.", "# music",
-        [await slash(PANDA, "top", period=choice("30d"))])
-    add("dj", "Stats", "/dj  ·  p!dj",
-        "Whose requests other people save the most.", "# music", [await slash(PANDA, "dj")])
-    add("match", "Stats", "/match  ·  p!match",
-        "How well two people's taste lines up, and the artists and songs you share.", "# music",
-        [await slash(PANDA, "match", member=JUNI)])
-    add("throwback", "Stats", "/throwback",
-        "A random song from the server's history, with a Save button.", "# music", [await slash(KAI, "throwback")])
+        await typed(PANDA, "p!top 30d"))
+    add("dj", "Stats", "p!dj  ·  /dj",
+        "Whose requests other people save the most.", "# music", await typed(PANDA, "p!dj"))
+    add("match", "Stats", "p!match  ·  /match",
+        "How well two people's taste lines up, and the artists and songs you share. "
+        "<code>p!match @a @b</code> compares two other people.", "# music",
+        await typed(PANDA, f"p!match <@{JUNI.id}>", mentions=[JUNI]))
+    add("throwback", "Stats", "p!throwback  ·  /throwback",
+        "A random song from the server's history, with a Save button.", "# music", await typed(KAI, "p!throwback"))
     add("nowplaying", "Stats", "/nowplaying",
         "Show the song that's playing in your voice channel, with a Save button.", "🔊 Chill VC",
         [await slash(JUNI, "nowplaying", channel=CHILL)])
@@ -381,21 +387,19 @@ async def build_scenes() -> list[Scene]:
         "Finds channels PandaBot can't see or post in, since missing permissions otherwise fail silently.",
         "# music", [await slash(PANDA, "setupcheck")])
     bot.backfill = AsyncMock(return_value=(6, 412))
-    started = await slash(PANDA, "backfill", messages=10000)
-    await bot.wait_for_background()
-    add("backfill", "Server setup", "/backfill  ·  p!backfill",
+    add("backfill", "Server setup", "p!backfill  ·  /backfill",
         "Reads back through old messages so the server's past songs show up in stats from day one.",
-        "# music", [started, from_reply(MUSIC.sent[-1])])
+        "# music", await typed(PANDA, "p!backfill 10000"))
 
     # Everything else
     add("help", "Everything else", "p!help",
         "Every text command on one card. They all exist as slash commands too.", "# music",
         await typed(ROSA, "p!help"))
-    add("invite", "Everything else", "/invite",
-        "A link to add PandaBot to another server.", "# music", [await slash(KAI, "invite")])
-    add("support", "Everything else", "/support",
+    add("invite", "Everything else", "p!invite  ·  /invite",
+        "A link to add PandaBot to another server.", "# music", await typed(KAI, "p!invite"))
+    add("support", "Everything else", "p!support  ·  /support",
         "PandaBot is free. If you'd like to help with the hosting bill, there's a tip jar.", "# music",
-        [await slash(KAI, "support")])
+        await typed(KAI, "p!support"))
     add("forgetme", "Everything else", "/forgetme",
         "Deletes everything PandaBot stores about you, in every server, after you confirm.", "# music",
         [await slash(MOSS, "forgetme")])
@@ -545,7 +549,7 @@ def render_message(m: Msg) -> str:
         who_, text = m.reply_to
         ctx = (f'<div class="ctx"><span class="spine"></span>{avatar(who_, True)}'
                f'<span class="ctx-name" style="color:{who_.colour}">@{who_.display_name}</span>'
-               f' <span class="ctx-text">{html.escape(text)}</span></div>')
+               f' <span class="ctx-text">{md(text)}</span></div>')
     tag = '<span class="app">APP</span>' if m.author.bot else ""
     colour = "#f2f3f5" if m.author.bot else m.author.colour
     body = [f'<div class="head"><span class="name" style="color:{colour}">{m.author.display_name}</span>{tag}'
@@ -714,8 +718,9 @@ def write_gallery(scenes: list[Scene]) -> None:
 <main class="wide">
   <p><a href="index.html">← PandaBot</a></p>
   <h1>Commands</h1>
-  <p class="lede">What every PandaBot command looks like in Discord. Text commands start with <code>p!</code>, and
-  every one of them is also a slash command. <code>p!help</code> lists them all in Discord.</p>
+  <p class="lede">What every PandaBot command looks like in Discord. Most people type the <code>p!</code> commands
+  (and <code>!like</code> to save); each one also works as a slash command, and a few settings are slash-only.
+  <code>p!help</code> lists them all in Discord.</p>
   <!-- Generated by tools/screenshots.py. Edit the descriptions there, then re-run it. -->
 {chr(10).join(sections)}
 
