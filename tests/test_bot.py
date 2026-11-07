@@ -487,29 +487,34 @@ def test_backfill_reads_old_messages(bot):
     assert asyncio.run(bot.backfill(guild)) == (1, 0)  # running it again adds nothing
 
 
-def test_commands_register_in_every_server_and_on_join(bot, monkeypatch):
+def test_commands_sync_globally_and_old_server_copies_are_removed(bot, monkeypatch):
     from unittest.mock import Mock
 
     def server(gid, name):
         return SimpleNamespace(id=gid, name=name, me=None, text_channels=[], voice_channels=[], stage_channels=[])
 
-    test_server, real_server = server(1, "Test Server"), server(2, "//")
-    monkeypatch.setattr(CompanionBot, "guilds", property(lambda self: [test_server, real_server]))
+    old_server, clean_server = server(1, "Test Server"), server(2, "//")
+    monkeypatch.setattr(CompanionBot, "guilds", property(lambda self: [old_server, clean_server]))
     bot.tree.sync = AsyncMock()
-    bot.tree.copy_global_to = Mock()
+    bot.tree.clear_commands = Mock()
+    # the first server still has the per-server copies an older version registered
+    bot.tree.fetch_commands = AsyncMock(side_effect=lambda guild: ["stats"] if guild is old_server else [])
 
     asyncio.run(bot.on_ready())
-    assert [c.kwargs["guild"].id for c in bot.tree.sync.call_args_list] == [1, 2]
+    assert [c.kwargs.get("guild") for c in bot.tree.sync.call_args_list] == [None, old_server]
+    bot.tree.clear_commands.assert_called_once_with(guild=old_server)
 
     asyncio.run(bot.on_ready())  # reconnect: no re-registration
     assert bot.tree.sync.await_count == 2
 
-    newcomer = server(3, "Someone else's server")
-    asyncio.run(bot.on_guild_join(newcomer))
-    assert bot.tree.sync.call_args.kwargs["guild"] is newcomer
+    asyncio.run(bot.on_guild_join(server(3, "Someone else's server")))  # global commands already cover it
+    assert bot.tree.sync.await_count == 2
 
-    bot.tree.sync = AsyncMock(side_effect=discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "no"))
-    assert asyncio.run(bot.register_commands_in(server(4, "x"))) is False  # logged, not raised
+
+def test_command_sync_failure_is_logged_not_raised(bot, monkeypatch):
+    monkeypatch.setattr(CompanionBot, "guilds", property(lambda self: []))
+    bot.tree.sync = AsyncMock(side_effect=discord.HTTPException(SimpleNamespace(status=500, reason="x"), "down"))
+    asyncio.run(bot.on_ready())
 
 
 def test_help_and_support_show_kofi_button(bot):

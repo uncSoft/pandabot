@@ -341,25 +341,30 @@ class CompanionBot(discord.Client):
         self._recent_music: dict[tuple[int, int], deque] = defaultdict(lambda: deque(maxlen=8))
         register_commands(self)
 
-    async def register_commands_in(self, guild: discord.abc.Snowflake) -> bool:
-        """Put the slash commands in one server. Per-server registration shows up within seconds;
-        global registration can take much longer, so every server the bot is in gets its own copy."""
-        self.tree.copy_global_to(guild=guild)
+    async def sync_commands(self) -> None:
+        """Register the slash commands globally, so they work in every server PandaBot joins (and
+        Discord's App Directory sees them), then remove the per-server copies older versions made,
+        which would otherwise show every command twice."""
         try:
-            await self.tree.sync(guild=guild)
-            return True
+            await self.tree.sync()
         except discord.HTTPException as exc:
-            log.warning("Couldn't add slash commands to server %s (invited without the "
-                        "applications.commands scope?): %s", guild.id, exc)
-            return False
+            log.warning("Couldn't register slash commands: %s", exc)
+            return
+        for guild in self.guilds:
+            try:
+                if await self.tree.fetch_commands(guild=guild):
+                    self.tree.clear_commands(guild=guild)
+                    await self.tree.sync(guild=guild)
+                    log.info("Removed old per-server commands from %s", guild.id)
+            except discord.HTTPException as exc:
+                log.warning("Couldn't check old commands in server %s: %s", guild.id, exc)
 
     async def on_app_command_completion(self, interaction: discord.Interaction, command) -> None:
         log.info("/%s by %s", command.qualified_name, interaction.user)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
-        """Someone added PandaBot to a new server: commands appear there with no setup."""
+        """Someone added PandaBot to a new server. Commands are global, so there's nothing to register."""
         log.info("Joined server %s (%s)", guild.name, guild.id)
-        await self.register_commands_in(guild)
         self._log_setup_check(guild)
 
     def _log_setup_check(self, guild: discord.Guild) -> None:
@@ -373,11 +378,10 @@ class CompanionBot(discord.Client):
         log.info("Logged in as %s (%s) in %d server(s)", self.user, self.user.id, len(self.guilds))
         if not self.guilds:
             log.warning("I'm not in any server yet. Invite me with the OAuth2 URL from the README.")
-        first_ready = not self._commands_registered
-        self._commands_registered = True
+        if not self._commands_registered:  # on_ready also fires after reconnects; once per start is enough
+            self._commands_registered = True
+            await self.sync_commands()
         for guild in self.guilds:
-            if first_ready:  # on_ready also fires after reconnects; registering once per start is enough
-                await self.register_commands_in(guild)
             self._log_setup_check(guild)
 
     # --- helpers ---------------------------------------------------------
