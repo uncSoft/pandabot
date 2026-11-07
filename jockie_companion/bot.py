@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from typing import Awaitable, Callable
 
 import discord
 from discord import app_commands
@@ -27,6 +28,7 @@ HEART_NAMES = {"❤️", "❤"}
 SAVE_PREFIX = "jc:save:"
 UNSAVE_PREFIX = "jc:unsave:"
 DEFAULT_SUPPORT_URL = "https://ko-fi.com/jtatuncsoft/tip"
+Notify = Callable[[str], Awaitable[object]]  # tells someone something (privately or in a channel)
 COMMAND_REQUESTER_WINDOW = 30  # seconds between "m!play x" and the music bot's reply
 ANNOUNCE_MODES = ("follow", "channel", "off")
 VoiceLike = (discord.VoiceChannel, discord.StageChannel)
@@ -205,6 +207,12 @@ def text_help_embed(p: str, support_url: str = "") -> discord.Embed:
     return e
 
 
+def dm_blocked_text(title: str, guild_name: str) -> str:
+    return (f"Saved **{title}** to your list ✅, but Discord won't let me DM you the card. "
+            f"To get DM cards: open **{guild_name}** → Privacy Settings → turn on **Direct Messages**. "
+            f"Your list is always in `/likes`.")
+
+
 def _saved_text(added: bool, play_or_title, artist=None, url=None) -> str:
     if isinstance(play_or_title, Play):
         play_or_title, artist, url = play_or_title.title, play_or_title.artist, play_or_title.url
@@ -277,6 +285,7 @@ class CompanionBot(discord.Client):
         self.requests = RequestTracker()
         self._backfilling: set[int] = set()
         self._commands_registered = False
+        self._dm_blocked_noticed: dict[int, float] = {}
         register_commands(self)
 
     async def register_commands_in(self, guild: discord.abc.Snowflake) -> bool:
@@ -494,7 +503,7 @@ class CompanionBot(discord.Client):
         return self.config.dm_on_save if pref is None else pref
 
     async def save(self, user_id: int, guild_id: int, title: str, artist: str | None, url: str | None,
-                   play: Play | None = None) -> bool:
+                   play: Play | None = None, on_dm_blocked: Notify | None = None) -> bool:
         """Save a song to someone's list and DM them a card for it. False if it was already saved."""
         like_id = self.store.add_like(guild_id, user_id, title, artist, url, play.id if play else None)
         if like_id is None:
@@ -502,11 +511,28 @@ class CompanionBot(discord.Client):
         if self.dm_enabled(user_id):
             # In the background: buttons and slash commands must answer Discord within 3 seconds,
             # and sending a DM can take longer than that.
-            self._spawn(self._send_save_dm(user_id, like_id, play))
+            self._spawn(self._send_save_dm(user_id, like_id, play, on_dm_blocked))
         return True
 
-    async def save_play(self, user_id: int, play: Play) -> bool:
-        return await self.save(user_id, play.guild_id, play.title, play.artist, play.url, play)
+    async def save_play(self, user_id: int, play: Play, on_dm_blocked: Notify | None = None) -> bool:
+        return await self.save(user_id, play.guild_id, play.title, play.artist, play.url, play, on_dm_blocked)
+
+    @staticmethod
+    def tell_privately(interaction: discord.Interaction) -> Notify:
+        """For buttons and slash commands: a follow-up only that person can see."""
+        return lambda text: interaction.followup.send(text, ephemeral=True)
+
+    def tell_in_channel(self, channel_id: int, user_id: int) -> Notify:
+        """For hearts (no private reply possible): a short @mention in the channel that deletes itself,
+        at most once an hour per person so it doesn't turn into spam."""
+        async def notify(text: str) -> None:
+            if time.time() - self._dm_blocked_noticed.get(user_id, 0) < 3600:
+                return
+            self._dm_blocked_noticed[user_id] = time.time()
+            await self.get_partial_messageable(channel_id).send(
+                f"<@{user_id}> {text}", delete_after=60,
+                allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=user_id)]))
+        return notify
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -517,21 +543,36 @@ class CompanionBot(discord.Client):
         while self._tasks:
             await asyncio.gather(*list(self._tasks))
 
-    async def _send_save_dm(self, user_id: int, like_id: int, play: Play | None) -> None:
+    async def _send_save_dm(self, user_id: int, like_id: int, play: Play | None,
+                            on_dm_blocked: Notify | None = None) -> None:
         like = self.store.get_like(like_id)
         if not like:
             return  # unsaved again before we got to it
         guild = self.get_guild(like.guild_id)
+        guild_name = guild.name if guild else "the server"
         try:
             user = self.get_user(user_id) or await self.fetch_user(user_id)
-            sent = await user.send(embed=_dm_embed(like, guild.name if guild else "the server", play),
-                                   view=_unsave_view(like_id))
-            if self.store.get_like(like_id):
-                self.store.set_like_dm(like_id, sent.channel.id, sent.id)
-            else:  # unsaved while the DM was on its way: take the card back
-                await sent.delete()
+            sent = await user.send(embed=_dm_embed(like, guild_name, play), view=_unsave_view(like_id))
+        except discord.Forbidden as exc:
+            # Discord refuses (their privacy settings for this server, or they haven't finished its
+            # rules/onboarding screen). The song is still saved, so tell them rather than fail silently.
+            log.info("Couldn't DM user %s: %s", user_id, exc)
+            if on_dm_blocked:
+                try:
+                    await on_dm_blocked(dm_blocked_text(like.title, guild_name))
+                except discord.HTTPException as notice_exc:
+                    log.info("Couldn't tell user %s either: %s", user_id, notice_exc)
+            return
         except discord.HTTPException as exc:
-            log.info("Couldn't DM user %s (DMs from server members off?): %s", user_id, exc)
+            log.info("Couldn't DM user %s: %s", user_id, exc)
+            return
+        if self.store.get_like(like_id):
+            self.store.set_like_dm(like_id, sent.channel.id, sent.id)
+        else:  # unsaved while the DM was on its way: take the card back
+            try:
+                await sent.delete()
+            except discord.HTTPException:
+                pass
 
     async def forget_dm(self, like: Like | None) -> None:
         """Delete the DM card for a song that was just unsaved, so the DMs stay in sync with the list."""
@@ -560,14 +601,16 @@ class CompanionBot(discord.Client):
         if not play:
             await message.reply("Nothing has played yet.", mention_author=False, delete_after=15)
             return
-        added = await self.save_play(message.author.id, play)
+        added = await self.save_play(message.author.id, play,
+                                     self.tell_in_channel(message.channel.id, message.author.id))
         await message.reply(_saved_text(added, play), mention_author=False, delete_after=30,
                             suppress_embeds=True)
 
     # --- p! text commands -------------------------------------------------
     async def save_row(self, interaction: discord.Interaction, row: SongRow) -> None:
         """'Save a song from this page' menu on song lists."""
-        added = await self.save(interaction.user.id, interaction.guild_id, row.title, row.artist, row.url, row.play)
+        added = await self.save(interaction.user.id, interaction.guild_id, row.title, row.artist, row.url, row.play,
+                                self.tell_privately(interaction))
         await interaction.response.send_message(_saved_text(added, row.title, row.artist, row.url), ephemeral=True)
 
     def song_list(self, title: str, rows: list[SongRow], empty: str) -> SongPager:
@@ -726,7 +769,7 @@ class CompanionBot(discord.Client):
         if payload.member and payload.member.bot:
             return
         if play := self.store.play_by_message(payload.message_id):
-            await self.save_play(payload.user_id, play)
+            await self.save_play(payload.user_id, play, self.tell_in_channel(payload.channel_id, payload.user_id))
 
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
         if payload.emoji.name not in HEART_NAMES or payload.user_id == self.user.id:
@@ -743,7 +786,7 @@ class CompanionBot(discord.Client):
             if not play:
                 await interaction.response.send_message("That song isn't in the history any more.", ephemeral=True)
                 return
-            added = await self.save_play(interaction.user.id, play)
+            added = await self.save_play(interaction.user.id, play, self.tell_privately(interaction))
             await interaction.response.send_message(_saved_text(added, play), ephemeral=True)
         elif custom_id.startswith(UNSAVE_PREFIX):
             # "Remove from list" button on a DM card
@@ -781,7 +824,7 @@ def register_commands(bot: CompanionBot) -> None:
         if not play:
             await interaction.response.send_message("I haven't seen anything play yet.", ephemeral=True)
             return
-        added = await bot.save_play(interaction.user.id, play)
+        added = await bot.save_play(interaction.user.id, play, bot.tell_privately(interaction))
         await interaction.response.send_message(_saved_text(added, play), ephemeral=True)
 
     @tree.command(name="support", description="Help cover PandaBot's server costs")
@@ -964,14 +1007,15 @@ def register_commands(bot: CompanionBot) -> None:
     async def save_from_message(interaction: discord.Interaction, message: discord.Message) -> None:
         """Right-click any music-bot message (even an old one) → Apps → Save song."""
         if play := bot.store.play_by_message(message.id):
-            added = await bot.save_play(interaction.user.id, play)
+            added = await bot.save_play(interaction.user.id, play, bot.tell_privately(interaction))
             await interaction.response.send_message(_saved_text(added, play), ephemeral=True)
             return
         track = parse_message(snapshot(message))
         if not track:
             await interaction.response.send_message("I couldn't find a song in that message.", ephemeral=True)
             return
-        added = await bot.save(interaction.user.id, interaction.guild_id, track.title, track.artist, track.url)
+        added = await bot.save(interaction.user.id, interaction.guild_id, track.title, track.artist, track.url,
+                               on_dm_blocked=bot.tell_privately(interaction))
         await interaction.response.send_message(_saved_text(added, track.title, track.artist, track.url),
                                                 ephemeral=True)
 

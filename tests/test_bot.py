@@ -64,9 +64,15 @@ def bot(monkeypatch):
         u.dms.clear()
     b.get_user = {u.id: u for u in (PANDA, LISTENER)}.get
     b.deleted_dms = []
+    b.channel_notices = []
+
+    async def channel_send(cid, content, **kw):
+        b.channel_notices.append((cid, content, kw))
+
     b.get_partial_messageable = lambda cid: SimpleNamespace(
         get_partial_message=lambda mid: SimpleNamespace(delete=AsyncMock(
-            side_effect=lambda: b.deleted_dms.append((cid, mid))))
+            side_effect=lambda: b.deleted_dms.append((cid, mid)))),
+        send=lambda content, **kw: channel_send(cid, content, **kw),
     )
     return b
 
@@ -99,7 +105,8 @@ def added_track(title, artist, requested_by):
 
 
 def heart(user_id, message_id):
-    return SimpleNamespace(emoji=SimpleNamespace(name="❤️"), user_id=user_id, member=None, message_id=message_id)
+    return SimpleNamespace(emoji=SimpleNamespace(name="❤️"), user_id=user_id, member=None,
+                           message_id=message_id, channel_id=20)
 
 
 def test_jockie_flow_requester_announce_and_heart(bot):
@@ -519,3 +526,46 @@ def test_support_link_can_be_turned_off(bot):
     guild, text = _session(bot)
     kw = command(bot, guild, text, PANDA, "p!help").call_args.kwargs
     assert kw["view"] is None and "ko-fi" not in kw["embed"].description
+
+
+
+class BlockedUser(FakeUser):
+    """Someone Discord won't let the bot DM (error 50278 in the real server)."""
+    async def send(self, **kw):
+        raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"),
+                                {"code": 50278, "message": "Cannot send messages to this user"})
+
+
+def test_blocked_dm_on_heart_tells_them_in_channel_once(bot):
+    blocked = BlockedUser(50, "alex", "Alex")
+    bot.get_user = {blocked.id: blocked}.get
+    _, _, announcement = _play_one(bot)
+
+    run(bot, bot.on_raw_reaction_add(heart(blocked.id, announcement.id)))
+    assert [l.title for l in bot.store.likes(1, blocked.id)] == ["GRAILED"]  # still saved
+    [(channel_id, text, kw)] = bot.channel_notices
+    assert channel_id == 20 and text.startswith("<@50> Saved **GRAILED**") and "Privacy Settings" in text
+    assert kw["delete_after"] == 60
+
+    # Another heart soon after: saved, but no second notice (no spam)
+    other = bot.store.record_play(1, 20, 4242, botmod.parse_message(botmod.MessageSnapshot(
+        embeds=[botmod.EmbedSnapshot(description="Started playing **Other** by X")])))[0]
+    bot.store.add_announcement(4243, other)
+    run(bot, bot.on_raw_reaction_add(heart(blocked.id, 4243)))
+    assert len(bot.store.likes(1, blocked.id)) == 2 and len(bot.channel_notices) == 1
+
+
+def test_blocked_dm_on_save_button_tells_them_privately(bot):
+    blocked = BlockedUser(51, "sam", "Sam")
+    bot.get_user = {blocked.id: blocked}.get
+    _, _, announcement = _play_one(bot)
+    followup = SimpleNamespace(send=AsyncMock())
+    click = SimpleNamespace(type=discord.InteractionType.component,
+                            data={"custom_id": announcement.view.children[0].custom_id}, user=blocked,
+                            response=SimpleNamespace(send_message=AsyncMock()), followup=followup)
+    run(bot, bot.on_interaction(click))
+    click.response.send_message.assert_awaited_once()  # the normal "Saved" reply
+    followup.send.assert_awaited_once()
+    assert "won't let me DM you" in followup.send.call_args.args[0]
+    assert followup.send.call_args.kwargs == {"ephemeral": True}
+    assert bot.channel_notices == []
