@@ -1,19 +1,50 @@
-# Jockie Companion
+# 🐼 PandaBot
 
-A small Discord bot that sits next to **Jockie Music** (or any music bot that posts
-"now playing" messages) and adds what Jockie doesn't do:
+**A Discord companion for Jockie Music.** Never lose a song you heard in voice chat again.
 
-- **Now-playing announcements in voice chat.** When a song starts, it posts a card in
-  the text chat of the voice channel Jockie is playing in (or a channel you choose).
-- **One-tap saving.** Tap ❤️ on the card (or on Jockie's own message), press
-  **Save song**, type `!like`, or use `/save`.
-- **Your DMs are your list.** Every save DMs you a card with the track, a YouTube
-  link and the original link. Unsaving a song deletes its DM card, so your DMs
-  always match your saved list. Each card has a **Remove from list** button.
-- **Play history and stats.** Every song gets logged with who requested it.
+[**➕ Add to Discord**](https://discord.com/oauth2/authorize?client_id=1568403551665782835&scope=bot+applications.commands&permissions=117824)
+· [Website](https://pandabot-site.onrender.com)
+· [Support server](https://discord.gg/vvShzeYx5E)
+· [Privacy](https://pandabot-site.onrender.com/privacy.html)
 
-It doesn't control playback. Jockie still does that. This bot only reads what Jockie
-posts and can see which voice channel Jockie is in.
+Music bots like Jockie play songs in voice channels, but once a song ends it's gone. PandaBot
+follows the music bot and adds the missing pieces:
+
+- **🎧 Now-playing cards** in the voice channel's own chat: title, artist, who requested it, and a YouTube link.
+- **❤️ One-tap saving.** Tap the heart, press Save, type `!like`, or `/save`. Each save is DMed to you,
+  so your DMs become your playlist. Unsaving deletes the card.
+- **📊 Stats:** music profiles (`p!stats`), server charts (`p!top`), a "whose picks get saved most"
+  leaderboard (`p!dj`), taste matching (`p!match @friend`), and `p!heard` for "what was that song?"
+- **📚 Backfill:** reads a server's old music-bot messages so the stats start with months of history.
+- **🔌 Other music bots** via `/musicbot add`, with `/musicbot check` to see how each bot's messages are read.
+
+PandaBot never joins voice or plays music. It only reads what the music bot posts.
+
+## How it's built
+
+| | |
+|---|---|
+| Language | Python 3.12, [discord.py](https://github.com/Rapptz/discord.py) 2.x (gateway bot, slash commands, buttons, select menus) |
+| Storage | SQLite (play history, saves, listeners, settings), with in-place schema upgrades |
+| Hosting | Render background worker + persistent disk; auto-deploys on push. Website is a Render static site (`site/`) |
+| Tests | 70 pytest tests, including captured real Jockie messages and end-to-end handler tests with fake Discord objects |
+
+```
+jockie_companion/
+  parser.py   music-bot message → Track (title, artist, link, requester, length); no Discord dependency
+  db.py       SQLite store: plays, likes, listeners, settings, stats queries, /forgetme
+  stats.py    time periods, stat cards, paged song lists with a "save from this page" menu
+  bot.py      Discord events, saving/DM cards, announcements, p! and slash commands, backfill
+```
+
+The parser deliberately works on plain snapshots rather than discord.py objects, so each real
+music-bot format gets a regression test (see `tests/test_parser.py`).
+
+## Self-hosting
+
+You'll need your own bot application and token (see [Setup](#setup-about-10-minutes) below).
+The code is licensed under the **GNU AGPL-3.0**: you can run and modify it, but if you run a modified
+version for other people, you must share your changes under the same license.
 
 ## Ways to save a song
 
@@ -247,3 +278,7 @@ Requester detection, in order:
 - Shared server playlist (`/playlist add`) in addition to personal lists
 - Spotify playlist export (needs a Spotify app + OAuth)
 - Web dashboard
+
+## License
+
+Copyright (C) 2026 JT. Licensed under the [GNU Affero General Public License v3.0](LICENSE).

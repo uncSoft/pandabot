@@ -30,6 +30,7 @@ SAVE_PREFIX = "jc:save:"
 UNSAVE_PREFIX = "jc:unsave:"
 DEFAULT_SUPPORT_URL = "https://ko-fi.com/jtatuncsoft/tip"
 DEFAULT_SUPPORT_SERVER = "https://discord.gg/vvShzeYx5E"
+SOURCE_URL = "https://github.com/uncSoft/pandabot"  # AGPL: users of the hosted bot can get its source
 # View Channels, Send Messages, Embed Links, Attach Files, Read Message History, Add Reactions
 INVITE_PERMISSIONS = 117824
 Notify = Callable[[str], Awaitable[object]]  # tells someone something (privately or in a channel)
@@ -252,7 +253,7 @@ def text_help_embed(p: str, support_url: str = "") -> discord.Embed:
         "**Saving:** tap ❤️, use the menu under any list, type `!like`, or `/save`",
         *(["", f"☕ Like PandaBot? [Help with server costs]({support_url})"] if support_url else []),
     ])
-    e.set_footer(text="All of these also exist as slash commands")
+    e.set_footer(text="All of these also exist as slash commands · Open source (AGPL): github.com/uncSoft/pandabot")
     return e
 
 
