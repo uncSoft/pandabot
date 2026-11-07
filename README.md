@@ -124,6 +124,21 @@ typed it.
 members (the Discord default). If they don't, the song is still saved. They just
 won't get the card.
 
+## Other music bots
+
+Jockie is followed in every server. A server can follow more music bots too (Manage Server):
+
+| Command | What it does |
+|---|---|
+| `/musicbot add @Bot [prefix]` | Follow another music bot. Give its text prefix (e.g. `!`) if people use one; `/play` requests are credited either way |
+| `/musicbot check [@Bot]` | How PandaBot read that bot's last few messages, with the raw messages attached |
+| `/musicbot list` | What's followed in this server |
+| `/musicbot remove @Bot` | Stop following one |
+
+Any bot that posts a "Now playing" / "Started playing" message usually works straight away. If
+`/musicbot check` shows something misread, send the attached file so the reader can be tuned
+for that bot (and get a test, like Jockie's formats in `tests/test_parser.py`).
+
 ## Adding PandaBot to more servers
 
 Anyone with Manage Server can add it with the invite link. Slash commands appear in that server

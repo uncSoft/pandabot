@@ -56,6 +56,16 @@ CREATE TABLE IF NOT EXISTS announcements (
     play_id    INTEGER NOT NULL REFERENCES plays (id)
 );
 
+-- Extra music bots a server watches besides Jockie (/musicbot add), with their text-command prefix.
+CREATE TABLE IF NOT EXISTS music_bots (
+    guild_id INTEGER NOT NULL,
+    bot_id   INTEGER NOT NULL,
+    name     TEXT,
+    prefix   TEXT,
+    added_at REAL NOT NULL,
+    PRIMARY KEY (guild_id, bot_id)
+);
+
 CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id            INTEGER PRIMARY KEY,
     announce_mode       TEXT NOT NULL,   -- follow | channel | off
@@ -427,6 +437,23 @@ class Store:
             (guild_id, mode, channel_id),
         )
         self.conn.commit()
+
+    def add_music_bot(self, guild_id: int, bot_id: int, name: str, prefix: str | None) -> None:
+        self.conn.execute(
+            "INSERT INTO music_bots (guild_id, bot_id, name, prefix, added_at) VALUES (?,?,?,?,?)"
+            " ON CONFLICT (guild_id, bot_id) DO UPDATE SET name = excluded.name, prefix = excluded.prefix",
+            (guild_id, bot_id, name, prefix or None, time.time()))
+        self.conn.commit()
+
+    def remove_music_bot(self, guild_id: int, bot_id: int) -> bool:
+        cur = self.conn.execute("DELETE FROM music_bots WHERE guild_id = ? AND bot_id = ?", (guild_id, bot_id))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def music_bots(self, guild_id: int) -> list[tuple[int, str | None, str | None]]:
+        """(bot_id, name, prefix) for the extra music bots this server watches."""
+        return [(r["bot_id"], r["name"], r["prefix"]) for r in self.conn.execute(
+            "SELECT bot_id, name, prefix FROM music_bots WHERE guild_id = ? ORDER BY added_at", (guild_id,))]
 
     def has_plays_in_channel(self, channel_id: int) -> bool:
         return self.conn.execute("SELECT 1 FROM plays WHERE channel_id = ? LIMIT 1", (channel_id,)).fetchone() is not None

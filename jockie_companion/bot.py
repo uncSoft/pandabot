@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
@@ -81,6 +82,29 @@ def _component_texts(components) -> list[str]:
         if accessory := getattr(c, "accessory", None):
             out += _component_texts([accessory])
     return out
+
+
+def raw_record(message: discord.Message) -> dict:
+    """A music-bot message as plain JSON, for the capture file and /musicbot check."""
+    return {
+        "message_id": message.id,
+        "author": str(message.author),
+        "content": message.content,
+        "embeds": [e.to_dict() for e in message.embeds],
+        "component_texts": _component_texts(message.components),
+    }
+
+
+def describe_reading(track: Track | None, record: dict) -> str:
+    """One line saying how PandaBot read a music-bot message."""
+    if track is None:
+        text = record.get("content") or next(
+            (e.get("description") or e.get("title") or "" for e in record.get("embeds", [])), "") or "(no text)"
+        text = " ".join(text.split())
+        return f"· Not a song message: {text[:70]}{'…' if len(text) > 70 else ''}"
+    label = "▶️ Now playing" if track.kind == Kind.NOW_PLAYING else "➕ Queued"
+    artist = f" — {track.artist}" if track.artist else " (no artist found)"
+    return f"{label}: **{track.title}**{artist}"
 
 
 def snapshot(message: discord.Message) -> MessageSnapshot:
@@ -286,6 +310,9 @@ class CompanionBot(discord.Client):
         self._backfilling: set[int] = set()
         self._commands_registered = False
         self._dm_blocked_noticed: dict[int, float] = {}
+        self._music_bot_cache: dict[int, tuple[set[int], tuple[str, ...]]] = {}
+        # (guild, bot) → last few messages and how they were read, for /musicbot check
+        self._recent_music: dict[tuple[int, int], deque] = defaultdict(lambda: deque(maxlen=8))
         register_commands(self)
 
     async def register_commands_in(self, guild: discord.abc.Snowflake) -> bool:
@@ -328,9 +355,23 @@ class CompanionBot(discord.Client):
             self._log_setup_check(guild)
 
     # --- helpers ---------------------------------------------------------
-    def is_music_bot(self, user: discord.abc.User) -> bool:
+    def server_music_bots(self, guild_id: int | None) -> tuple[set[int], tuple[str, ...]]:
+        """(bot ids, text prefixes) a server added with /musicbot, cached until it changes."""
+        if guild_id is None:
+            return set(), ()
+        if guild_id not in self._music_bot_cache:
+            rows = self.store.music_bots(guild_id)
+            self._music_bot_cache[guild_id] = (
+                {bot_id for bot_id, _, _ in rows},
+                tuple(p.lower() for _, _, p in rows if p))
+        return self._music_bot_cache[guild_id]
+
+    def is_music_bot(self, user: discord.abc.User, guild_id: int | None = None) -> bool:
+        """Jockie (by name, or MUSIC_BOT_IDS) everywhere, plus any bots this server added."""
         if not user.bot or user.id == self.user.id:
             return False
+        if user.id in self.server_music_bots(guild_id)[0]:
+            return True
         if self.config.music_bot_ids:
             return user.id in self.config.music_bot_ids
         return user.name.lower().startswith(self.config.music_bot_name_prefix)
@@ -338,9 +379,10 @@ class CompanionBot(discord.Client):
     def watching(self, channel_id: int) -> bool:
         return not self.config.channel_ids or channel_id in self.config.channel_ids
 
-    def is_play_command(self, text: str) -> bool:
-        """'m!p <song>' / 'm!play <song>' typed in any channel."""
-        for prefix in self.config.command_prefixes:
+    def is_play_command(self, text: str, guild_id: int | None = None) -> bool:
+        """'m!p <song>' / '!play <song>' typed in any channel, with Jockie's or this server's bots' prefixes."""
+        prefixes = {*self.config.command_prefixes, *self.server_music_bots(guild_id)[1]}
+        for prefix in sorted(prefixes, key=len, reverse=True):  # longest first: '!!' before '!'
             if text.startswith(prefix):
                 words = text[len(prefix):].split(maxsplit=1)
                 return bool(words) and words[0] in self.config.play_commands
@@ -376,15 +418,15 @@ class CompanionBot(discord.Client):
                 await self.handle_text_command(message)
             elif text in self.config.like_keywords and self.keyword_allowed(message.guild.id, message.channel, text):
                 await self.keyword_like(message)
-            elif self.is_play_command(text):
+            elif self.is_play_command(text, message.guild.id):
                 self.requests.record(message, time.time())
             return
-        if self.watching(message.channel.id) and self.is_music_bot(message.author):
+        if self.watching(message.channel.id) and self.is_music_bot(message.author, message.guild.id):
             await self.handle_music_message(message)
 
     async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
         # Some music bots post a placeholder and edit the song in afterwards.
-        if after.guild and self.watching(after.channel.id) and self.is_music_bot(after.author):
+        if after.guild and self.watching(after.channel.id) and self.is_music_bot(after.author, after.guild.id):
             await self.handle_music_message(after)
 
     def _requester(self, message: discord.Message, track: Track, tracker: RequestTracker,
@@ -405,13 +447,7 @@ class CompanionBot(discord.Client):
     def _dump(self, message: discord.Message) -> None:
         if not self.config.dump_path:
             return
-        record = {
-            "message_id": message.id,
-            "author": str(message.author),
-            "content": message.content,
-            "embeds": [e.to_dict() for e in message.embeds],
-            "component_texts": _component_texts(message.components),
-        }
+        record = raw_record(message)
         with open(self.config.dump_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -422,6 +458,8 @@ class CompanionBot(discord.Client):
         if live:
             self._dump(message)
         track = parse_message(snapshot(message))
+        if live:
+            self._recent_music[(message.guild.id, message.author.id)].append((time.time(), raw_record(message), track))
         if not track:
             return
         now = time.time() if live else message.created_at.timestamp()
@@ -476,9 +514,9 @@ class CompanionBot(discord.Client):
                 continue
             for m in reversed(messages):  # oldest first, so requests line up with the songs they queued
                 if not m.author.bot:
-                    if self.is_play_command(m.content.strip().lower()):
+                    if self.is_play_command(m.content.strip().lower(), guild.id):
                         tracker.record(m, m.created_at.timestamp())
-                elif self.is_music_bot(m.author):
+                elif self.is_music_bot(m.author, guild.id):
                     await self.handle_music_message(m, live=False, tracker=tracker)
         return len(channels), self.store.count_plays(guild.id) - before
 
@@ -860,12 +898,84 @@ def register_commands(bot: CompanionBot) -> None:
     async def setupcheck(interaction: discord.Interaction) -> None:
         problems = setup_problems(interaction.guild, interaction.guild.me)
         jockies = [ch for ch in (*interaction.guild.voice_channels, *interaction.guild.stage_channels)
-                   if any(m.bot and bot.is_music_bot(m) for m in ch.members)]
+                   if any(m.bot and bot.is_music_bot(m, interaction.guild_id) for m in ch.members)]
         lines = ["**All channels look good.**"] if not problems else ["**Problems:**", *("• " + p for p in problems)]
         lines.append("")
         lines.append("Music bot in voice now: " + (", ".join(f"🔊{c.name}" for c in jockies) or
                                                    "none I can see (start a song, then run this again)"))
         await interaction.response.send_message("\n".join(lines)[:2000], ephemeral=True)
+
+    musicbot = app_commands.Group(name="musicbot", description="Which music bots PandaBot follows in this server",
+                                  default_permissions=discord.Permissions(manage_guild=True), guild_only=True)
+
+    def forget_cache(guild_id: int) -> None:
+        bot._music_bot_cache.pop(guild_id, None)
+
+    @musicbot.command(name="add", description="Follow another music bot in this server (Jockie is always on)")
+    @app_commands.describe(music_bot="The music bot to follow",
+                           prefix="Its text-command prefix, e.g. ! or ;; (leave empty if it only uses /play)")
+    async def musicbot_add(interaction: discord.Interaction, music_bot: discord.Member,
+                           prefix: app_commands.Range[str, 1, 10] | None = None) -> None:
+        if not music_bot.bot or music_bot.id == bot.user.id:
+            await interaction.response.send_message("Pick a music **bot** (not a person, and not me).", ephemeral=True)
+            return
+        prefix = (prefix or "").strip() or None
+        if prefix and " " in prefix:
+            await interaction.response.send_message("The prefix can't contain spaces.", ephemeral=True)
+            return
+        bot.store.add_music_bot(interaction.guild_id, music_bot.id, music_bot.display_name, prefix)
+        forget_cache(interaction.guild_id)
+        requests = "`/play` requests are credited automatically" + (
+            f", and so are `{prefix}play` / `{prefix}p`" if prefix else "")
+        await interaction.response.send_message(
+            f"Following **{music_bot.display_name}** in this server. {requests}.\n"
+            f"Play a couple of songs with it, then run `/musicbot check` to see how I read its messages.",
+            ephemeral=True)
+
+    @musicbot.command(name="remove", description="Stop following a music bot you added")
+    async def musicbot_remove(interaction: discord.Interaction, music_bot: discord.Member) -> None:
+        removed = bot.store.remove_music_bot(interaction.guild_id, music_bot.id)
+        forget_cache(interaction.guild_id)
+        note = (" Jockie is followed by default, so it stays on."
+                if not removed and music_bot.name.lower().startswith(bot.config.music_bot_name_prefix) else "")
+        await interaction.response.send_message(
+            (f"Stopped following **{music_bot.display_name}**." if removed
+             else f"I wasn't following **{music_bot.display_name}** as an added bot.") + note, ephemeral=True)
+
+    @musicbot.command(name="list", description="Music bots PandaBot follows in this server")
+    async def musicbot_list(interaction: discord.Interaction) -> None:
+        default = (", ".join(f"<@{i}>" for i in bot.config.music_bot_ids) if bot.config.music_bot_ids
+                   else f"any bot named \"{bot.config.music_bot_name_prefix.title()}…\"")
+        lines = [f"**Always:** {default} · prefix " + ", ".join(f"`{p}`" for p in bot.config.command_prefixes)]
+        for bot_id, name, prefix in bot.store.music_bots(interaction.guild_id):
+            lines.append(f"<@{bot_id}> · " + (f"prefix `{prefix}`" if prefix else "slash commands only"))
+        lines.append("\nAdd one with `/musicbot add`. Check one with `/musicbot check`.")
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    @musicbot.command(name="check", description="See how PandaBot read a music bot's recent messages")
+    @app_commands.describe(music_bot="Leave empty to check every music bot that posted recently")
+    async def musicbot_check(interaction: discord.Interaction, music_bot: discord.Member | None = None) -> None:
+        recent = {bot_id: entries for (gid, bot_id), entries in bot._recent_music.items()
+                  if gid == interaction.guild_id and entries and (music_bot is None or bot_id == music_bot.id)}
+        if not recent:
+            who_ = f"**{music_bot.display_name}**" if music_bot else "a music bot"
+            await interaction.response.send_message(
+                f"I haven't seen {who_} post since I last restarted. Play a song with it, then try again."
+                + ("" if music_bot is None or bot.is_music_bot(music_bot, interaction.guild_id)
+                   else f" (I'm not following it yet: `/musicbot add` first.)"), ephemeral=True)
+            return
+        e = discord.Embed(title="🔎 How I read recent music-bot messages", colour=discord.Colour.blurple())
+        raw = []
+        for bot_id, entries in recent.items():
+            lines = [f"<t:{int(at)}:t> {describe_reading(track, record)}" for at, record, track in list(entries)[-5:]]
+            e.add_field(name=entries[-1][1]["author"][:256], value="\n".join(lines)[:1024], inline=False)
+            raw += [record for _, record, _ in entries]
+        e.set_footer(text="Something misread? Send the attached file to whoever maintains PandaBot.")
+        file = discord.File(io.BytesIO(json.dumps(raw, ensure_ascii=False, indent=1).encode()),
+                            filename="music_bot_messages.json")
+        await interaction.response.send_message(embed=e, file=file, ephemeral=True)
+
+    tree.add_command(musicbot)
 
     @tree.command(name="announce", description="Choose where new songs get announced")
     @app_commands.describe(

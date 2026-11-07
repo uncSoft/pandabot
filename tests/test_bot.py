@@ -607,3 +607,54 @@ def test_like_keywords_outside_the_voice_chat(bot):
     asyncio.run(go())
     assert [l.title for l in bot.store.likes(1, LISTENER.id)] == ["GRAILED"]
     assert [l.title for l in bot.store.likes(1, PANDA.id)] == ["GRAILED"]
+
+
+FREDBOAT = FakeUser(500, "FredBoat♪♪", "FredBoat♪♪", bot=True)
+
+
+def fredboat_now_playing(title, artist):
+    e = discord.Embed(title="Now Playing", description=f"[{title}](https://youtu.be/x) by {artist}")
+    return e
+
+
+def test_added_music_bot_with_bang_prefix(bot):
+    music = SimpleNamespace(id=20, name="music")
+    guild = make_guild(text_channels=[music])
+
+    async def go(*messages):
+        for m in messages:
+            await bot.on_message(m)
+
+    # Not followed yet: ignored
+    first = msg(guild, music, FREDBOAT, embeds=[fredboat_now_playing("Clocks", "Coldplay")])
+    asyncio.run(go(first))
+    assert bot.store.play_by_message(first.id) is None
+
+    bot.store.add_music_bot(1, FREDBOAT.id, "FredBoat", "!")
+    bot._music_bot_cache.clear()
+    np = msg(guild, music, FREDBOAT, embeds=[fredboat_now_playing("Yellow", "Coldplay")])
+    asyncio.run(go(msg(guild, music, PANDA, content="!play yellow coldplay"), np))
+    play = bot.store.play_by_message(np.id)
+    assert (play.title, play.artist, play.requester_id) == ("Yellow", "Coldplay", PANDA.id)
+    np.add_reaction.assert_awaited_once_with("❤️")
+
+    # !like is still a save, not a FredBoat request
+    assert not bot.is_play_command("!like", 1)
+    # Other servers don't follow FredBoat; Jockie is still followed here
+    assert not bot.is_music_bot(FREDBOAT, 2) and bot.is_music_bot(JOCKIE, 1)
+
+
+def test_musicbot_check_reports_how_messages_were_read(bot):
+    music = SimpleNamespace(id=20, name="music")
+    guild = make_guild(text_channels=[music])
+    asyncio.run(bot.on_message(msg(guild, music, JOCKIE, embeds=[started_playing("GRAILED", "1nonly")])))
+    asyncio.run(bot.on_message(msg(guild, music, JOCKIE, embeds=[discord.Embed(description="There are no more tracks")])))
+
+    check = bot.tree.get_command("musicbot").get_command("check")
+    interaction = SimpleNamespace(guild_id=1, response=SimpleNamespace(send_message=AsyncMock()))
+    asyncio.run(check.callback(interaction, None))
+    kw = interaction.response.send_message.call_args.kwargs
+    [field] = kw["embed"].fields
+    assert "▶️ Now playing: **GRAILED** — 1nonly" in field.value
+    assert "Not a song message: There are no more tracks" in field.value
+    assert kw["file"].filename == "music_bot_messages.json" and kw["ephemeral"]

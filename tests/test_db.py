@@ -95,3 +95,14 @@ def test_pending_requests_match_by_title():
     pending = s.pop_pending(1, "blinding lights!")
     assert (pending.requester_id, pending.requester_name) == (55, None)
     assert s.pop_pending(1, "Blinding Lights") is None
+
+
+def test_music_bots_per_server():
+    s = store()
+    s.add_music_bot(1, 500, "FredBoat", "!")
+    s.add_music_bot(1, 500, "FredBoat♪", ";;")  # re-adding updates it
+    s.add_music_bot(2, 600, "Chip", None)
+    assert s.music_bots(1) == [(500, "FredBoat♪", ";;")]
+    assert s.music_bots(2) == [(600, "Chip", None)]
+    assert s.remove_music_bot(1, 500) and not s.remove_music_bot(1, 500)
+    assert s.music_bots(1) == []
