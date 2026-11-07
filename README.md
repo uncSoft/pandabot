@@ -6,6 +6,9 @@
 · [Website](https://pandabot-site.onrender.com)
 · [Support server](https://discord.gg/vvShzeYx5E)
 · [Privacy](https://pandabot-site.onrender.com/privacy.html)
+· [Every command, with screenshots](https://pandabot-site.onrender.com/commands.html)
+
+<img src="site/img/commands/now-playing.png" width="600" alt="PandaBot's now-playing card in a voice channel's chat">
 
 Music bots like Jockie play songs in voice channels, but once a song ends it's gone. PandaBot
 follows the music bot and adds the missing pieces:
@@ -27,7 +30,8 @@ PandaBot never joins voice or plays music. It only reads what the music bot post
 | Language | Python 3.12, [discord.py](https://github.com/Rapptz/discord.py) 2.x (gateway bot, slash commands, buttons, select menus) |
 | Storage | SQLite (play history, saves, listeners, settings), with in-place schema upgrades |
 | Hosting | Render background worker + persistent disk; auto-deploys on push. Website is a Render static site (`site/`) |
-| Tests | 70 pytest tests, including captured real Jockie messages and end-to-end handler tests with fake Discord objects |
+| Tests | 71 pytest tests, including captured real Jockie messages and end-to-end handler tests with fake Discord objects |
+| Screenshots | `tools/screenshots.py` runs every command through the real handlers on a made-up demo server and photographs the replies in Discord's style with headless Chrome (`pip install playwright`, then run it) |
 
 ```
 jockie_companion/

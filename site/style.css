@@ -51,3 +51,11 @@ footer a { color: var(--muted); }
 table { border-collapse: collapse; width: 100%; margin: 8px 0; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+main.wide { max-width: 820px; }
+.shots { display: grid; gap: 32px; }
+figure { margin: 0; }
+figure img, .shot { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); }
+figcaption h3 { margin: 0 0 2px; }
+figcaption p { margin: 0 0 10px; color: var(--muted); }
+.showcase { display: grid; gap: 16px; margin-top: 32px; }
+.more { text-align: center; margin-top: 16px; }
