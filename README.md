@@ -50,8 +50,8 @@ version for other people, you must share your changes under the same license.
 
 | How | Where |
 |---|---|
-| Tap ❤️ (tap again to unsave) | The bot's now-playing card, Jockie's "Started playing", or Jockie's "Added Track" (saves that queued song) |
-| **Save song** button | The now-playing card, or `/nowplaying` |
+| Tap ❤️ (tap again to unsave) | Jockie's "Started playing", or Jockie's "Added Track" (saves that queued song). A ❤️ you add to PandaBot's card works too |
+| **Save song** button | PandaBot's now-playing card, or `/nowplaying` |
 | Type `!like` | Any channel |
 | Type just `❤️` | Voice-channel chat, the announce channel, or any channel Jockie posts in |
 | `/save` | Any channel |

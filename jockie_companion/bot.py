@@ -152,7 +152,7 @@ def _play_embed(play: Play, heading: str) -> discord.Embed:
         e.add_field(name="Requested by", value=f"<@{play.requester_id}>")
     elif play.requester_name:
         e.add_field(name="Requested by", value=play.requester_name[:1024])
-    e.set_footer(text=f"Tap {HEART}, press Save, or type !like to add it to your list")
+    e.set_footer(text="Press Save or type !like to add it to your list")
     e.timestamp = datetime.fromtimestamp(play.played_at, tz=timezone.utc)
     return e
 
@@ -562,10 +562,10 @@ class CompanionBot(discord.Client):
         play = self.store.play_by_id(play_id)
         try:
             sent = await target.send(embed=_play_embed(play, "Now playing"), view=_save_view(play_id))
+            # No ❤️ row on our own card: it already has a Save button. A ❤️ someone adds still saves.
             self.store.add_announcement(sent.id, play_id)
-            await sent.add_reaction(HEART)
         except discord.HTTPException as exc:
-            log.warning("Couldn't announce in #%s (check Send Messages / Add Reactions there): %s",
+            log.warning("Couldn't announce in #%s (check Send Messages there): %s",
                         getattr(target, "name", target.id), exc)
 
     # --- saving & unsaving (every path goes through these) ---------------

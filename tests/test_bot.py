@@ -128,7 +128,7 @@ def test_jockie_flow_requester_announce_and_heart(bot):
         # Announced in the voice channel's chat, with a heart and a Save button
         [announcement] = vc.sent
         assert announcement.embed.title == "GRAILED"
-        announcement.add_reaction.assert_awaited_once_with("❤️")
+        announcement.add_reaction.assert_not_awaited()  # the card has a Save button instead of a ❤️ row
 
         await bot.on_raw_reaction_add(heart(8, announcement.id))
         assert [l.title for l in bot.store.likes(1, 8)] == ["GRAILED"]
