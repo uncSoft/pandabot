@@ -153,14 +153,14 @@ def _play_embed(play: Play, heading: str) -> discord.Embed:
         e.add_field(name="Requested by", value=f"<@{play.requester_id}>")
     elif play.requester_name:
         e.add_field(name="Requested by", value=play.requester_name[:1024])
-    e.set_footer(text="Press Save or type !like to add it to your list")
+    e.set_footer(text="Save it to your DMs to find later, or type !like")
     e.timestamp = datetime.fromtimestamp(play.played_at, tz=timezone.utc)
     return e
 
 
 def _save_view(play_id: int) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Save song", emoji=HEART, style=discord.ButtonStyle.secondary,
+    view.add_item(discord.ui.Button(label="Save to DMs", emoji=HEART, style=discord.ButtonStyle.secondary,
                                     custom_id=f"{SAVE_PREFIX}{play_id}"))
     return view
 
@@ -265,7 +265,7 @@ def welcome_embed(p: str, problems: list[str], support_server: str = "") -> disc
     lines = [
         "**There's nothing to set up.** Play music with Jockie Music as usual (any Jockie instance works) "
         "and I'll pick it up:",
-        "• A **Now playing** card in the voice channel's chat, with a **Save song** button",
+        "• A **Now playing** card in the voice channel's chat, with a **Save to DMs** button",
         f"• Tap {HEART} under Jockie's song posts, or type `!like`, to save what's playing. "
         "Saved songs are DM'd to you",
         f"• `{p}help` lists everything: `{p}stats`, `{p}top`, `{p}saved`, `{p}history`…",
@@ -316,7 +316,7 @@ def usage_embed(bot: "CompanionBot") -> discord.Embed:
     for gid, g in sorted(joined.items(), key=lambda kv: (
             -(u.servers[kv[0]].plays_7d if kv[0] in u.servers else 0), -(kv[1].member_count or 0))):
         s = u.servers.get(gid)
-        bits = [f"{g.member_count or '?'} members"]
+        bits = [f"{g.member_count or '?'} members", str(getattr(g, "preferred_locale", "") or "?")]
         if s and s.plays:
             bits.append(f"{s.plays_7d} plays/wk")
             if s.saves:

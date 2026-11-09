@@ -741,7 +741,8 @@ def test_usage_is_owner_only_and_sent_by_dm(bot, monkeypatch):
     run(bot, bot.on_raw_reaction_add(heart(PANDA.id, bot.store.history(1)[0].message_id)))
     bot._owner_ids = {PANDA.id}
     bot._connection._guilds = {1: SimpleNamespace(id=1, name="Lo-Fi Lounge", member_count=42),
-                               2: SimpleNamespace(id=2, name="Quiet Place", member_count=7)}
+                               2: SimpleNamespace(id=2, name="Quiet Place", member_count=7,
+                                                  preferred_locale=discord.Locale.russian)}
 
     asked = msg(guild, text, PANDA, content="p!usage")
     asyncio.run(bot.on_message(asked))
@@ -749,8 +750,8 @@ def test_usage_is_owner_only_and_sent_by_dm(bot, monkeypatch):
     asked.reply.assert_not_awaited()  # nothing about other servers is posted in the channel
     report = PANDA.dms[-1].embed.description
     assert "**2** servers" in report
-    assert "**Lo-Fi Lounge** · 42 members · 2 plays/wk · 2 saves" in report
-    assert "**Quiet Place** · 7 members · no songs yet" in report
+    assert "**Lo-Fi Lounge** · 42 members · ? · 2 plays/wk · 2 saves" in report
+    assert "**Quiet Place** · 7 members · ru · no songs yet" in report
 
     dms_before = len(LISTENER.dms)
     stranger = msg(guild, text, LISTENER, content="p!usage")

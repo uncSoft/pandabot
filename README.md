@@ -14,7 +14,7 @@ Music bots like Jockie play songs in voice channels, but once a song ends it's g
 follows the music bot and adds the missing pieces:
 
 - **🎧 Now-playing cards** in the voice channel's own chat: title, artist, who requested it, and a YouTube link.
-- **❤️ One-tap saving.** Tap the heart, press Save, type `!like`, or `/save`. Each save is DMed to you,
+- **❤️ One-tap saving.** Tap the heart, press **Save to DMs**, type `!like`, or `/save`. Each save is DMed to you,
   so your DMs become your playlist. Unsaving deletes the card.
 - **📊 Stats:** music profiles (`p!stats`), server charts (`p!top`), a "whose picks get saved most"
   leaderboard (`p!dj`), taste matching (`p!match @friend`), and `p!heard` for "what was that song?"
@@ -71,7 +71,7 @@ version for other people, you must share your changes under the same license.
 | How | Where |
 |---|---|
 | Tap ❤️ (tap again to unsave) | Jockie's "Started playing", or Jockie's "Added Track" (saves that queued song). A ❤️ you add to PandaBot's card works too |
-| **Save song** button | PandaBot's now-playing card, or `/nowplaying` |
+| **Save to DMs** button | PandaBot's now-playing card, or `/nowplaying` |
 | Type `!like` | Any channel |
 | Type just `❤️` | Voice-channel chat, the announce channel, or any channel Jockie posts in |
 | `/save` | Any channel |
