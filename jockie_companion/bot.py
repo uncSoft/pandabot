@@ -342,6 +342,20 @@ def usage_embed(bot: "CompanionBot") -> discord.Embed:
     return e
 
 
+NO_SONGS_HINT = ("No songs logged in this server yet. If music has been playing, I probably can't see the channel "
+                 "the music bot posts in. Admins: run `/setupcheck`.")
+BLIND_CHECK_SECONDS = 300  # how long a music bot can sit in voice before "I can't see it" is likely
+NOTICE_EVERY = 7 * 86400
+
+
+def blind_notice_text(bot_name: str) -> str:
+    return (f"🐼 **{bot_name}** has been in here for a few minutes, but I haven't seen any of its song messages, "
+            f"so nothing is being logged or saved.\n"
+            f"Usually that means I can't see the channel where songs are requested. An admin can run "
+            f"`/setupcheck`, or allow PandaBot **View Channel** and **Read Message History** in that channel. "
+            f"If {bot_name}'s song announcements are turned off, turning them on fixes it too.")
+
+
 def dm_blocked_text(title: str, guild_name: str) -> str:
     return (f"Saved **{title}** to your list ✅, but Discord won't let me DM you the card. "
             f"To get DM cards: open **{guild_name}** → Privacy Settings → turn on **Direct Messages**. "
@@ -356,26 +370,54 @@ def _saved_text(added: bool, play_or_title, artist=None, url=None) -> str:
 
 TEXT_PERMS = ("view_channel", "read_message_history", "send_messages", "add_reactions")
 VOICE_PERMS = ("view_channel", "send_messages", "embed_links", "add_reactions")
+PERM_LABELS = {"view_channel": "View Channel", "read_message_history": "Read Message History",
+               "send_messages": "Send Messages", "add_reactions": "Add Reactions", "embed_links": "Embed Links"}
+MUSIC_WORDS = ("music", "jockie", "song", "dj", "bot", "command", "cmd", "request", "playlist", "radio", "panda")
+FIX_HOW = ("To fix one: right-click the channel → Edit Channel → Permissions → add PandaBot (or its role) "
+           "→ turn on the permissions named above. Then run `/setupcheck` again.")
+
+
+def _names(channels, sign: str = "#", limit: int = 12) -> str:
+    """Channel names, music-looking ones first (those are the ones that matter most)."""
+    names = sorted((c.name for c in channels), key=lambda n: not any(w in n.lower() for w in MUSIC_WORDS))
+    more = f" and {len(names) - limit} more" if len(names) > limit else ""
+    return ", ".join(sign + n for n in names[:limit]) + more
+
+
+def _labels(perms) -> str:
+    names = [f"**{PERM_LABELS[n]}**" for n in perms]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
 def setup_problems(guild, me) -> list[str]:
-    """Channels the bot can't see or post in. Missing permissions fail silently otherwise."""
+    """Channels the bot can't see or post in, in plain words. Missing permissions fail silently otherwise."""
     problems = []
-    unreadable = [c.name for c in guild.text_channels
-                  if not (c.permissions_for(me).view_channel and c.permissions_for(me).read_message_history)]
-    if unreadable:
-        problems.append(f"Can't read {len(unreadable)} text channel(s), so requests/announcements there are "
-                        f"missed: {', '.join('#' + n for n in unreadable[:15])}")
+    readable, unreadable = [], []
     for c in guild.text_channels:
         p = c.permissions_for(me)
-        if p.view_channel and p.read_message_history:
-            missing = [n for n in TEXT_PERMS if not getattr(p, n)]
-            if missing:
-                problems.append(f"#{c.name}: missing {', '.join(missing)}")
+        (readable if p.view_channel and p.read_message_history else unreadable).append((c, p))
+    if unreadable:
+        problems.append(
+            f"I can't see {len(unreadable)} text channel(s): {_names(c for c, _ in unreadable)}. Songs requested "
+            f"or announced there are missed. If people use the music bot in any of them, allow PandaBot "
+            f"{_labels(('view_channel', 'read_message_history'))} there.")
+    mute = [c for c, p in readable if not p.send_messages]
+    if mute:
+        problems.append(
+            f"I can read but not reply in {_names(mute)}. That's fine for read-only channels like rules; "
+            f"anywhere people chat, allow {_labels(('send_messages',))} so `p!` commands and `!like` get an answer.")
+    no_heart = [c for c, p in readable if p.send_messages and not p.add_reactions]
+    if no_heart:
+        problems.append(f"I can't add the ❤️ under songs in {_names(no_heart)}. Allow {_labels(('add_reactions',))}.")
+    voice_missing: dict[str, list] = {}
     for c in (*guild.voice_channels, *guild.stage_channels):
-        missing = [n for n in VOICE_PERMS if not getattr(c.permissions_for(me), n)]
+        missing = tuple(n for n in VOICE_PERMS if not getattr(c.permissions_for(me), n))
         if missing:
-            problems.append(f"voice 🔊{c.name}: missing {', '.join(missing)} (can't follow/announce there)")
+            voice_missing.setdefault(missing, []).append(c)
+    for missing, chans in voice_missing.items():
+        problems.append(
+            f"I can't post song cards in the chat of {_names(chans, '🔊')}. Allow {_labels(missing)} there, "
+            f"or send cards to one channel with `/announce`.")
     return problems
 
 
@@ -421,6 +463,8 @@ class CompanionBot(discord.Client):
         self._backfilling: set[int] = set()
         self._commands_registered = False
         self._owner_ids: set[int] | None = None
+        self._music_seen: dict[int, float] = {}  # guild → when a music bot last posted anything I could read
+        self._blind_checks: dict[int, asyncio.Task] = {}
         self._dm_blocked_noticed: dict[int, float] = {}
         self._music_bot_cache: dict[int, tuple[set[int], tuple[str, ...]]] = {}
         # (guild, bot) → last few messages and how they were read, for /musicbot check
@@ -551,6 +595,55 @@ class CompanionBot(discord.Client):
         return self.store.latest_play(guild.id, vc_id)
 
     # --- watching the music bot -----------------------------------------
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState,
+                                    after: discord.VoiceState) -> None:
+        """A music bot joined voice: if none of its messages show up within a few minutes, I'm probably
+        blind to the channel it posts in. Say so once, where the listeners are."""
+        if (not after.channel or before.channel == after.channel or self.config.channel_ids
+                or not self.is_music_bot(member, member.guild.id) or member.guild.id in self._blind_checks):
+            return
+        gid = member.guild.id
+        task = asyncio.create_task(self.check_blind(member, after.channel, time.time()))
+        self._blind_checks[gid] = task
+        task.add_done_callback(lambda _: self._blind_checks.pop(gid, None))
+
+    async def check_blind(self, music_bot, voice, joined_at: float, delay: float = BLIND_CHECK_SECONDS) -> bool:
+        await asyncio.sleep(delay)
+        guild = voice.guild
+        if music_bot.id not in voice.voice_states or not any(not m.bot for m in voice.members):
+            return False  # it left, or nobody is listening
+        if self._music_seen.get(guild.id, 0) >= joined_at - 60:
+            if not self.store.recent(guild.id, joined_at - 60, limit=1):
+                log.warning("%s posted in %s but no song was read: check the parser (/musicbot check)",
+                            music_bot, guild.id)
+            return False
+        log.warning("%s has been in voice in %s for %ds with no messages I can see", music_bot, guild.id, delay)
+        now = time.time()
+        last = self.store.notice_sent_at(guild.id, "blind")
+        if last and now - last < NOTICE_EVERY:
+            return False
+        me = guild.me
+        p = voice.permissions_for(me)
+        target = voice if (p.view_channel and p.send_messages) else welcome_channel(guild)
+        if target is None:
+            return False
+        try:
+            await target.send(content=blind_notice_text(music_bot.display_name))
+        except discord.HTTPException as exc:
+            log.warning("Couldn't post the can't-see notice in %s: %s", guild.id, exc)
+            return False
+        self.store.record_notice(guild.id, "blind", now)
+        return True
+
+    def with_hint(self, guild_id: int, text: str) -> str:
+        """Empty results get a pointer to /setupcheck when the server has never logged a song."""
+        return f"{text}\n\n{NO_SONGS_HINT}" if not self.store.count_plays(guild_id) else text
+
+    def hinted(self, guild_id: int, embed: discord.Embed) -> discord.Embed:
+        if not self.store.count_plays(guild_id):
+            embed.description = f"{embed.description or ''}\n\n{NO_SONGS_HINT}".strip()
+        return embed
+
     async def on_message(self, message: discord.Message) -> None:
         if not message.author.bot and message.content.strip().lower() == f"{self.config.stats_prefix}usage":
             if await self.is_owner(message.author):
@@ -567,11 +660,13 @@ class CompanionBot(discord.Client):
                 self.requests.record(message, time.time())
             return
         if self.watching(message.channel.id) and self.is_music_bot(message.author, message.guild.id):
+            self._music_seen[message.guild.id] = time.time()
             await self.handle_music_message(message)
 
     async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
         # Some music bots post a placeholder and edit the song in afterwards.
         if after.guild and self.watching(after.channel.id) and self.is_music_bot(after.author, after.guild.id):
+            self._music_seen[after.guild.id] = time.time()
             await self.handle_music_message(after)
 
     def _requester(self, message: discord.Message, track: Track, tracker: RequestTracker,
@@ -790,7 +885,8 @@ class CompanionBot(discord.Client):
     async def keyword_like(self, message: discord.Message) -> None:
         play = self.current_play(message.guild, message.author, message.channel)
         if not play:
-            await message.reply("Nothing has played yet.", mention_author=False, delete_after=15)
+            await message.reply(self.with_hint(message.guild.id, "Nothing has played yet."), mention_author=False,
+                                delete_after=60)
             return
         added = await self.save_play(message.author.id, play,
                                      self.tell_in_channel(message.channel.id, message.author.id))
@@ -804,8 +900,8 @@ class CompanionBot(discord.Client):
                                 self.tell_privately(interaction))
         await interaction.response.send_message(_saved_text(added, row.title, row.artist, row.url), ephemeral=True)
 
-    def song_list(self, title: str, rows: list[SongRow], empty: str) -> SongPager:
-        return SongPager(title, rows, self.save_row, empty)
+    def song_list(self, guild_id: int, title: str, rows: list[SongRow], empty: str) -> SongPager:
+        return SongPager(title, rows, self.save_row, self.with_hint(guild_id, empty))
 
     async def handle_text_command(self, message: discord.Message) -> None:
         """p!stats, p!played @panda 7d, p!panda, p!top month ... (see p!help)."""
@@ -861,13 +957,13 @@ class CompanionBot(discord.Client):
             who_ = person()
             if who_ == "unknown":
                 return await unknown_person()
-            await reply(stats_embed(self.store, guild.id, who_[0], who_[1], per("30d")))
+            await reply(self.hinted(guild.id, stats_embed(self.store, guild.id, who_[0], who_[1], per("30d"))))
         elif cmd in ("played", "requests", "requested"):
             who_ = person()
             if who_ == "unknown":
                 return await unknown_person()
             pr = per("7d")
-            pager = self.song_list(f"🎵 Requested by {who_[1]} · {pr.label}",
+            pager = self.song_list(guild.id, f"🎵 Requested by {who_[1]} · {pr.label}",
                                    rows_from_plays(self.store.requests_by(guild.id, who_[0], pr.since)),
                                    "No requests in this period.")
             await reply(pager.embed(), pager)
@@ -875,7 +971,7 @@ class CompanionBot(discord.Client):
             who_ = person()
             if who_ == "unknown":
                 return await unknown_person()
-            pager = self.song_list(f"{HEART} Saved by {who_[1]}",
+            pager = self.song_list(guild.id, f"{HEART} Saved by {who_[1]}",
                                    rows_from_likes(self.store.likes(guild.id, who_[0])), "No saved songs yet.")
             await reply(pager.embed(), pager)
         elif cmd in ("heard", "listened"):
@@ -883,20 +979,20 @@ class CompanionBot(discord.Client):
             if who_ == "unknown":
                 return await unknown_person()
             pr = per("24h")
-            pager = self.song_list(f"🎧 Heard by {who_[1]} · {pr.label}",
+            pager = self.song_list(guild.id, f"🎧 Heard by {who_[1]} · {pr.label}",
                                    rows_from_plays(self.store.heard_by(guild.id, who_[0], pr.since), True),
                                    "Nothing yet. I only know what you heard since I started watching voice.")
             await reply(pager.embed(), pager)
         elif cmd in ("history", "recent"):
             pr = per("24h")
-            pager = self.song_list(f"🕘 Played in {guild.name} · {pr.label}",
+            pager = self.song_list(guild.id, f"🕘 Played in {guild.name} · {pr.label}",
                                    rows_from_plays(self.store.recent(guild.id, pr.since), True),
                                    "Nothing played in this period.")
             await reply(pager.embed(), pager)
         elif cmd in ("top", "charts", "chart"):
-            await reply(top_embed(self.store, guild.id, per("7d")))
+            await reply(self.hinted(guild.id, top_embed(self.store, guild.id, per("7d"))))
         elif cmd in ("dj", "djs", "leaderboard", "lb"):
-            await reply(dj_embed(self.store, guild.id, per("30d")))
+            await reply(self.hinted(guild.id, dj_embed(self.store, guild.id, per("30d"))))
         elif cmd in ("match", "compat", "taste"):
             people = [(m.id, m.display_name) for m in mentioned]
             if not people and name_words:
@@ -913,7 +1009,7 @@ class CompanionBot(discord.Client):
         elif cmd in ("throwback", "random", "tb"):
             play = self.store.random_play(guild.id)
             if not play:
-                await message.reply("No history yet.", mention_author=False)
+                await message.reply(self.with_hint(guild.id, "No history yet."), mention_author=False)
                 return
             await reply(throwback_embed(play), _save_view(play.id))
         elif cmd == "backfill":
@@ -930,7 +1026,7 @@ class CompanionBot(discord.Client):
                 await message.reply(f"Unknown command. Try `{p}help`.", mention_author=False)
                 return
             pr = per("7d")
-            pager = self.song_list(f"🎵 Requested by {found[1]} · {pr.label}",
+            pager = self.song_list(guild.id, f"🎵 Requested by {found[1]} · {pr.label}",
                                    rows_from_plays(self.store.requests_by(guild.id, found[0], pr.since)),
                                    "No requests in this period.")
             await reply(pager.embed(), pager)
@@ -1016,7 +1112,8 @@ def register_commands(bot: CompanionBot) -> None:
     async def nowplaying(interaction: discord.Interaction) -> None:
         play = bot.current_play(interaction.guild, interaction.user, interaction.channel)
         if not play:
-            await interaction.response.send_message("I haven't seen anything play yet.", ephemeral=True)
+            await interaction.response.send_message(
+                bot.with_hint(interaction.guild_id, "I haven't seen anything play yet."), ephemeral=True)
             return
         await interaction.response.send_message(embed=_play_embed(play, "Last started playing"),
                                                 view=_save_view(play.id))
@@ -1026,7 +1123,8 @@ def register_commands(bot: CompanionBot) -> None:
     async def save(interaction: discord.Interaction) -> None:
         play = bot.current_play(interaction.guild, interaction.user, interaction.channel)
         if not play:
-            await interaction.response.send_message("I haven't seen anything play yet.", ephemeral=True)
+            await interaction.response.send_message(
+                bot.with_hint(interaction.guild_id, "I haven't seen anything play yet."), ephemeral=True)
             return
         added = await bot.save_play(interaction.user.id, play, bot.tell_privately(interaction))
         await interaction.response.send_message(_saved_text(added, play), ephemeral=True)
@@ -1083,7 +1181,8 @@ def register_commands(bot: CompanionBot) -> None:
         problems = setup_problems(interaction.guild, interaction.guild.me)
         jockies = [ch for ch in (*interaction.guild.voice_channels, *interaction.guild.stage_channels)
                    if any(m.bot and bot.is_music_bot(m, interaction.guild_id) for m in ch.members)]
-        lines = ["**All channels look good.**"] if not problems else ["**Problems:**", *("• " + p for p in problems)]
+        lines = (["**All channels look good.**"] if not problems else
+                 ["**Things to fix:**", *("• " + p for p in problems), "", FIX_HOW])
         lines.append("")
         lines.append("Music bot in voice now: " + (", ".join(f"🔊{c.name}" for c in jockies) or
                                                    "none I can see (start a song, then run this again)"))
@@ -1211,7 +1310,7 @@ def register_commands(bot: CompanionBot) -> None:
     async def likes(interaction: discord.Interaction, member: discord.Member | None = None,
                     public: bool = False) -> None:
         member = member or interaction.user
-        pager = bot.song_list(f"{HEART} Saved by {member.display_name}",
+        pager = bot.song_list(interaction.guild_id, f"{HEART} Saved by {member.display_name}",
                               rows_from_likes(bot.store.likes(interaction.guild_id, member.id)),
                               "No saved songs yet.")
         await send_list(interaction, pager, ephemeral=not public)
@@ -1223,7 +1322,8 @@ def register_commands(bot: CompanionBot) -> None:
                     period: app_commands.Choice[str] | None = None) -> None:
         member = member or interaction.user
         await interaction.response.send_message(
-            embed=stats_embed(bot.store, interaction.guild_id, member.id, member.display_name, pick(period, "30d")))
+            embed=bot.hinted(interaction.guild_id, stats_embed(bot.store, interaction.guild_id, member.id,
+                                                               member.display_name, pick(period, "30d"))))
 
     @tree.command(name="played", description="Everything someone requested in a time period")
     @app_commands.choices(period=period_choices)
@@ -1231,7 +1331,7 @@ def register_commands(bot: CompanionBot) -> None:
     async def played(interaction: discord.Interaction, member: discord.Member | None = None,
                      period: app_commands.Choice[str] | None = None) -> None:
         member, pr = member or interaction.user, pick(period, "7d")
-        await send_list(interaction, bot.song_list(
+        await send_list(interaction, bot.song_list(interaction.guild_id, 
             f"🎵 Requested by {member.display_name} · {pr.label}",
             rows_from_plays(bot.store.requests_by(interaction.guild_id, member.id, pr.since)),
             "No requests in this period."))
@@ -1241,7 +1341,7 @@ def register_commands(bot: CompanionBot) -> None:
     @app_commands.guild_only()
     async def heard(interaction: discord.Interaction, period: app_commands.Choice[str] | None = None) -> None:
         pr = pick(period, "24h")
-        await send_list(interaction, bot.song_list(
+        await send_list(interaction, bot.song_list(interaction.guild_id, 
             f"🎧 Heard by {interaction.user.display_name} · {pr.label}",
             rows_from_plays(bot.store.heard_by(interaction.guild_id, interaction.user.id, pr.since), True),
             "Nothing yet. I only know what you heard since I started watching voice."), ephemeral=True)
@@ -1251,7 +1351,7 @@ def register_commands(bot: CompanionBot) -> None:
     @app_commands.guild_only()
     async def history(interaction: discord.Interaction, period: app_commands.Choice[str] | None = None) -> None:
         pr = pick(period, "24h")
-        await send_list(interaction, bot.song_list(
+        await send_list(interaction, bot.song_list(interaction.guild_id, 
             f"🕘 Played in {interaction.guild.name} · {pr.label}",
             rows_from_plays(bot.store.recent(interaction.guild_id, pr.since), True),
             "Nothing played in this period."), ephemeral=True)
@@ -1260,13 +1360,13 @@ def register_commands(bot: CompanionBot) -> None:
     @app_commands.choices(period=period_choices)
     @app_commands.guild_only()
     async def top(interaction: discord.Interaction, period: app_commands.Choice[str] | None = None) -> None:
-        await interaction.response.send_message(embed=top_embed(bot.store, interaction.guild_id, pick(period, "7d")))
+        await interaction.response.send_message(embed=bot.hinted(interaction.guild_id, top_embed(bot.store, interaction.guild_id, pick(period, "7d"))))
 
     @tree.command(name="dj", description="Whose requests other people save the most")
     @app_commands.choices(period=period_choices)
     @app_commands.guild_only()
     async def dj(interaction: discord.Interaction, period: app_commands.Choice[str] | None = None) -> None:
-        await interaction.response.send_message(embed=dj_embed(bot.store, interaction.guild_id, pick(period, "30d")))
+        await interaction.response.send_message(embed=bot.hinted(interaction.guild_id, dj_embed(bot.store, interaction.guild_id, pick(period, "30d"))))
 
     @tree.command(name="match", description="Taste match between you and someone (or two people)")
     @app_commands.guild_only()
@@ -1283,7 +1383,7 @@ def register_commands(bot: CompanionBot) -> None:
     async def throwback(interaction: discord.Interaction) -> None:
         play = bot.store.random_play(interaction.guild_id)
         if not play:
-            await interaction.response.send_message("No history yet.", ephemeral=True)
+            await interaction.response.send_message(bot.with_hint(interaction.guild_id, "No history yet."), ephemeral=True)
             return
         await interaction.response.send_message(embed=throwback_embed(play), view=_save_view(play.id))
 

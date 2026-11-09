@@ -334,10 +334,21 @@ def test_setup_problems_reports_hidden_and_voice_channels():
                        chan("general", perms(add_reactions=False))],
         voice_channels=[chan("Hangout", perms(send_messages=False))], stage_channels=[])
     problems = setup_problems(guild, me=None)
-    assert any("#secret" in p for p in problems)
-    assert any("#general: missing add_reactions" in p for p in problems)
-    assert any("Hangout" in p and "send_messages" in p for p in problems)
+    assert any("can't see 1 text channel(s): #secret" in p and "**View Channel**" in p for p in problems)
+    assert any("can't add the ❤️ under songs in #general" in p for p in problems)
+    assert any("🔊Hangout" in p and "**Send Messages**" in p for p in problems)
     assert not any("#music" in p for p in problems)
+
+
+def test_setup_problems_list_music_channels_first():
+    from jockie_companion.bot import setup_problems
+    hidden = SimpleNamespace(view_channel=False, read_message_history=False, send_messages=False,
+                             add_reactions=False, embed_links=False)
+    guild = SimpleNamespace(text_channels=[SimpleNamespace(name=n, permissions_for=lambda me: hidden)
+                                           for n in ("staff", "clips", "commandes-jockie-panda")],
+                            voice_channels=[], stage_channels=[])
+    [problem] = setup_problems(guild, me=None)
+    assert "#commandes-jockie-panda, #staff, #clips" in problem
 
 
 def test_save_button_answers_discord_before_sending_dm(bot):
@@ -762,3 +773,69 @@ def test_usage_totals_and_older_databases(tmp_path):
     assert (u.servers_active, u.servers_7d, u.plays, u.plays_7d, u.requesters, u.saves) == (2, 1, 3, 2, 2, 0)
     assert u.servers[1].plays == 2 and u.servers[2].last_play == 1
     assert u.top_week == [("A", "x", 2)]
+
+
+def _blind_setup(bot, listeners=(PANDA.id,)):
+    me = SimpleNamespace(id=999)
+    allowed = SimpleNamespace(view_channel=True, send_messages=True, embed_links=True)
+    vc = FakeVoice(77, "VC", members=[JOCKIE.id, *listeners])
+    vc.permissions_for = lambda member: allowed
+    vc.guild = SimpleNamespace(id=1, me=me, system_channel=None, text_channels=[])
+    return vc
+
+
+def test_music_bot_in_voice_with_no_messages_gets_one_notice_a_week(bot):
+    vc = _blind_setup(bot)
+    assert asyncio.run(bot.check_blind(JOCKIE, vc, time_now() - 400, delay=0))
+    [notice] = vc.sent
+    assert "Jockie Music (1)** has been in here for a few minutes" in notice.content and "/setupcheck" in notice.content
+    assert not asyncio.run(bot.check_blind(JOCKIE, vc, time_now() - 400, delay=0))  # not again this week
+    assert len(vc.sent) == 1
+
+
+def test_no_notice_when_its_messages_were_seen_or_nobody_listens(bot):
+    vc = _blind_setup(bot)
+    bot._music_seen[1] = time_now()
+    assert not asyncio.run(bot.check_blind(JOCKIE, vc, time_now() - 400, delay=0))
+    empty = _blind_setup(bot, listeners=())
+    bot._music_seen.clear()
+    assert not asyncio.run(bot.check_blind(JOCKIE, empty, time_now() - 400, delay=0))
+    assert not vc.sent and not empty.sent
+
+
+def test_voice_join_starts_one_check_per_server(bot, monkeypatch):
+    started = []
+
+    async def fake_check(member, channel, joined_at, delay=0):
+        started.append(channel.id)
+    monkeypatch.setattr(bot, "check_blind", fake_check)
+    vc = _blind_setup(bot)
+    jockie = SimpleNamespace(id=JOCKIE.id, name=JOCKIE.name, bot=True, guild=vc.guild)
+    person = SimpleNamespace(id=PANDA.id, name="pandafan42", bot=False, guild=vc.guild)
+    left, joined = SimpleNamespace(channel=None), SimpleNamespace(channel=vc)
+
+    async def go():
+        await bot.on_voice_state_update(person, left, joined)  # people don't trigger it
+        await bot.on_voice_state_update(jockie, left, joined)
+        await bot.on_voice_state_update(jockie, left, joined)  # already checking this server
+        await asyncio.sleep(0)
+    asyncio.run(go())
+    assert started == [77]
+
+
+def test_empty_results_point_to_setupcheck_until_a_song_is_logged(bot):
+    music = SimpleNamespace(id=20, name="music")
+    guild = make_guild(text_channels=[music])
+    top = msg(guild, music, PANDA, content="p!history")
+    asyncio.run(bot.on_message(top))
+    assert "/setupcheck" in top.reply.call_args.kwargs["embed"].description
+
+    _session(bot)
+    again = msg(guild, music, PANDA, content="p!history 1h")
+    asyncio.run(bot.on_message(again))
+    assert "/setupcheck" not in (again.reply.call_args.kwargs["embed"].description or "")
+
+
+def time_now():
+    import time
+    return time.time()

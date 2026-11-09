@@ -93,6 +93,15 @@ CREATE TABLE IF NOT EXISTS user_settings (
     dm_on_save  INTEGER NOT NULL
 );
 
+-- One-off notices PandaBot posted in a server (e.g. "I can't see the music bot's messages"),
+-- so each is repeated at most once a week, across restarts.
+CREATE TABLE IF NOT EXISTS notices (
+    guild_id INTEGER NOT NULL,
+    kind     TEXT NOT NULL,
+    sent_at  REAL NOT NULL,
+    PRIMARY KEY (guild_id, kind)
+);
+
 -- "Added to queue" messages carry the requester and length; "now playing" often doesn't.
 CREATE TABLE IF NOT EXISTS pending_requests (
     id             INTEGER PRIMARY KEY,
@@ -506,6 +515,16 @@ class Store:
         row = self.conn.execute("SELECT guild_id, title, artist, url FROM track_messages WHERE message_id = ?",
                                 (message_id,)).fetchone()
         return (row["guild_id"], row["title"], row["artist"], row["url"]) if row else None
+
+    def notice_sent_at(self, guild_id: int, kind: str) -> float | None:
+        row = self.conn.execute("SELECT sent_at FROM notices WHERE guild_id = ? AND kind = ?",
+                                (guild_id, kind)).fetchone()
+        return row[0] if row else None
+
+    def record_notice(self, guild_id: int, kind: str, at: float) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO notices (guild_id, kind, sent_at) VALUES (?, ?, ?)",
+                          (guild_id, kind, at))
+        self.conn.commit()
 
     def is_music_channel(self, channel_id: int) -> bool:
         """Has the music bot posted songs here (playing or queued)?"""
