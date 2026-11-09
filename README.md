@@ -23,6 +23,11 @@ follows the music bot and adds the missing pieces:
 
 PandaBot never joins voice or plays music. It only reads what the music bot posts.
 
+**There's nothing to set up for Jockie.** Add PandaBot, play a song with Jockie (any Jockie instance),
+and the card appears in that voice channel's chat. PandaBot just needs to see the channels where people
+type `m!p` and where Jockie posts; `/setupcheck` lists any it can't. `/musicbot add` is only for
+other music bots.
+
 ## Screenshots
 
 <table>
@@ -197,7 +202,11 @@ for that bot (and get a test, like Jockie's formats in `tests/test_parser.py`).
 
 Anyone with Manage Server can add it with the invite link. Slash commands appear in that server
 within seconds, and history, saves and settings are kept separate per server. There's no config
-to change. To have stats from the server's earlier history, run `p!backfill 10000` there once.
+to change; PandaBot posts a short welcome explaining that. To have stats from the server's earlier
+history, run `p!backfill 10000` there once.
+
+The bot's owner (or anyone on the app's team) can type `p!usage`, in a server or a DM, to get a
+DM with every server's activity. `python tools/usage.py` prints the same numbers from the database.
 
 ## Running it 24/7 on Render (recommended)
 

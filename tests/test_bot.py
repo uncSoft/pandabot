@@ -491,7 +491,8 @@ def test_commands_sync_globally_and_old_server_copies_are_removed(bot, monkeypat
     from unittest.mock import Mock
 
     def server(gid, name):
-        return SimpleNamespace(id=gid, name=name, me=None, text_channels=[], voice_channels=[], stage_channels=[])
+        return SimpleNamespace(id=gid, name=name, me=None, system_channel=None, text_channels=[], voice_channels=[],
+                               stage_channels=[])
 
     old_server, clean_server = server(1, "Test Server"), server(2, "//")
     monkeypatch.setattr(CompanionBot, "guilds", property(lambda self: [old_server, clean_server]))
@@ -692,3 +693,72 @@ def test_forgetme_deletes_a_persons_data_after_confirming(bot):
     assert len(bot.store.history(1)) == 2  # the server's play history stays
     assert bot.deleted_dms  # their DM card was removed too
     assert [l.title for l in bot.store.likes(1, LISTENER.id)] == ["9MM (KURT COBAIN)"]  # others untouched
+
+
+def test_welcome_post_on_join_explains_there_is_nothing_to_set_up(bot):
+    def chan(name, ok=True):
+        p = SimpleNamespace(view_channel=ok, send_messages=ok, embed_links=ok, read_message_history=ok,
+                            add_reactions=ok)
+        return SimpleNamespace(name=name, permissions_for=lambda me: p, send=AsyncMock())
+
+    rules, general, music = chan("rules", ok=False), chan("general"), chan("music-requests")
+    guild = SimpleNamespace(id=3, name="new", me=None, system_channel=rules, voice_channels=[],
+                            stage_channels=[], text_channels=[rules, general, music])
+    asyncio.run(bot.on_guild_join(guild))
+    rules.send.assert_not_awaited()  # can't post in the system channel → a music channel instead
+    general.send.assert_not_awaited()
+    embed = music.send.call_args.kwargs["embed"]
+    assert "nothing to set up" in embed.description and "p!help" in embed.description
+    assert "Jockie doesn't need it" in embed.description
+    assert "/setupcheck" in embed.description  # #rules is hidden from it, so it says so
+
+    locked = SimpleNamespace(id=4, name="locked", me=None, system_channel=None, voice_channels=[],
+                             stage_channels=[], text_channels=[chan("staff", ok=False)])
+    asyncio.run(bot.on_guild_join(locked))  # nowhere to post: no error
+
+
+def test_musicbot_add_says_jockie_needs_no_setup(bot):
+    add = bot.tree.get_command("musicbot").get_command("add")
+    interaction = SimpleNamespace(guild_id=1, response=SimpleNamespace(send_message=AsyncMock()))
+    asyncio.run(add.callback(interaction, JOCKIE2, None))
+    assert "already followed automatically" in interaction.response.send_message.call_args.args[0]
+    assert bot.store.music_bots(1) == []
+
+
+def test_usage_is_owner_only_and_sent_by_dm(bot, monkeypatch):
+    guild, text = _session(bot)
+    run(bot, bot.on_raw_reaction_add(heart(PANDA.id, bot.store.history(1)[0].message_id)))
+    bot._owner_ids = {PANDA.id}
+    bot._connection._guilds = {1: SimpleNamespace(id=1, name="Lo-Fi Lounge", member_count=42),
+                               2: SimpleNamespace(id=2, name="Quiet Place", member_count=7)}
+
+    asked = msg(guild, text, PANDA, content="p!usage")
+    asyncio.run(bot.on_message(asked))
+    asked.add_reaction.assert_awaited_once_with("📬")
+    asked.reply.assert_not_awaited()  # nothing about other servers is posted in the channel
+    report = PANDA.dms[-1].embed.description
+    assert "**2** servers" in report
+    assert "**Lo-Fi Lounge** · 42 members · 2 plays/wk · 2 saves" in report
+    assert "**Quiet Place** · 7 members · no songs yet" in report
+
+    dms_before = len(LISTENER.dms)
+    stranger = msg(guild, text, LISTENER, content="p!usage")
+    asyncio.run(bot.on_message(stranger))
+    assert len(LISTENER.dms) == dms_before
+    assert "Unknown command" in stranger.reply.call_args.args[0]
+
+
+def test_usage_totals_and_older_databases(tmp_path):
+    import sqlite3
+    from jockie_companion.usage import usage
+
+    old = tmp_path / "old.db"
+    with sqlite3.connect(old) as conn:  # a database from before likes, music bots etc. existed
+        conn.execute("CREATE TABLE plays (guild_id INTEGER, played_at REAL, requester_id INTEGER,"
+                     " title TEXT, artist TEXT)")
+        conn.executemany("INSERT INTO plays VALUES (?, ?, ?, ?, ?)",
+                         [(1, 9e9, 7, "A", "x"), (1, 9e9, 8, "a", "X"), (2, 1, None, "B", None)])
+    u = usage(sqlite3.connect(f"file:{old}?mode=ro", uri=True), now=9e9 + 60)
+    assert (u.servers_active, u.servers_7d, u.plays, u.plays_7d, u.requesters, u.saves) == (2, 1, 3, 2, 2, 0)
+    assert u.servers[1].plays == 2 and u.servers[2].last_play == 1
+    assert u.top_week == [("A", "x", 2)]

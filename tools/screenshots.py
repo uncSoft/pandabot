@@ -371,6 +371,11 @@ async def build_scenes() -> list[Scene]:
         [await slash(JUNI, "nowplaying", channel=CHILL)])
 
     # Server setup (Manage Server)
+    GUILD.system_channel = GENERAL
+    await bot.on_guild_join(GUILD)
+    add("welcome", "Server setup", "Welcome post",
+        "When PandaBot joins a server it posts this once: there's nothing to set up for Jockie.",
+        "# general", [from_reply(GENERAL.sent[-1])])
     add("announce", "Server setup", "/announce",
         "Choose where song cards go: the voice chat the music bot is in, one fixed channel, or nowhere.",
         "# music", [await slash(PANDA, "announce", mode=choice("follow"), channel=MUSIC)])

@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 from .db import Like, Play, Store
 from .parser import EmbedSnapshot, Kind, MessageSnapshot, Track, parse_message, youtube_link
+from .usage import ago, usage
 from .stats import (PERIOD_CHOICES, Period, SongPager, SongRow, dj_embed, match_embed, parse_period,
                     rows_from_likes, rows_from_plays, stats_embed, top_embed, who)
 
@@ -251,9 +252,93 @@ def text_help_embed(p: str, support_url: str = "") -> discord.Embed:
         "",
         "**Periods:** `24h` `7d` `2w` `3m` `1y` `today` `week` `month` `all`",
         "**Saving:** tap ❤️, use the menu under any list, type `!like`, or `/save`",
+        "**Admins:** `/announce` picks where cards go · `/setupcheck` lists channels I can't see",
         *(["", f"☕ Like PandaBot? [Help with server costs]({support_url})"] if support_url else []),
     ])
     e.set_footer(text="All of these also exist as slash commands · Open source (AGPL): github.com/uncSoft/pandabot")
+    return e
+
+
+def welcome_embed(p: str, problems: list[str], support_server: str = "") -> discord.Embed:
+    """Posted once when PandaBot joins a server, so whoever added it knows there's nothing to set up."""
+    e = discord.Embed(title="🐼 Thanks for adding PandaBot!", colour=discord.Colour.blurple())
+    lines = [
+        "**There's nothing to set up.** Play music with Jockie Music as usual (any Jockie instance works) "
+        "and I'll pick it up:",
+        "• A **Now playing** card in the voice channel's chat, with a **Save song** button",
+        f"• Tap {HEART} under Jockie's song posts, or type `!like`, to save what's playing. "
+        "Saved songs are DM'd to you",
+        f"• `{p}help` lists everything: `{p}stats`, `{p}top`, `{p}saved`, `{p}history`…",
+        "",
+        "**For admins (all optional)**",
+        f"• `{p}backfill 10000` imports songs already played here",
+        "• `/announce` picks where the cards go",
+        "• `/musicbot add` is only for *other* music bots. Jockie doesn't need it",
+    ]
+    if problems:
+        lines += ["", "⚠️ **I can't see or post in some channels**, so songs requested there are missed. "
+                      "Run `/setupcheck` to see which."]
+    if support_server:
+        lines += ["", f"Questions? [Support server]({support_server})"]
+    e.description = "\n".join(lines)
+    return e
+
+
+def welcome_channel(guild) -> discord.abc.Messageable | None:
+    """The server's system channel, else a music or general channel, else any channel I can post in."""
+    def ok(c) -> bool:
+        perms = c.permissions_for(guild.me)
+        return perms.view_channel and perms.send_messages and perms.embed_links
+
+    channels = [c for c in guild.text_channels if ok(c)]
+    if guild.system_channel and ok(guild.system_channel):
+        return guild.system_channel
+    for word in ("music", "general", "chat"):
+        for c in channels:
+            if word in c.name.lower():
+                return c
+    return channels[0] if channels else None
+
+
+def usage_embed(bot: "CompanionBot") -> discord.Embed:
+    """Owner-only overview of every server (p!usage). Server names come from Discord, not the database."""
+    u = usage(bot.store.conn)
+    now = time.time()
+    joined = {g.id: g for g in bot.guilds}
+    e = discord.Embed(title="📊 PandaBot usage", colour=discord.Colour.blurple())
+    totals = [
+        f"**{len(joined)}** servers · **{u.servers_7d}** played a song this week",
+        f"Songs: **{u.plays_7d}** this week · **{u.plays_24h}** today · {u.plays} all time",
+        f"Saves: **{u.saves_7d}** this week · {u.saves} all time · {u.savers} people",
+        f"{u.requesters} requested · {u.listeners} heard in voice · {u.dms_off} turned DMs off",
+    ]
+    rows = []
+    for gid, g in sorted(joined.items(), key=lambda kv: (
+            -(u.servers[kv[0]].plays_7d if kv[0] in u.servers else 0), -(kv[1].member_count or 0))):
+        s = u.servers.get(gid)
+        bits = [f"{g.member_count or '?'} members"]
+        if s and s.plays:
+            bits.append(f"{s.plays_7d} plays/wk")
+            if s.saves:
+                bits.append(f"{s.saves} saves")
+            bits.append(f"last {ago(s.last_play, now)}")
+        else:
+            bits.append("no songs yet")
+        rows.append(f"**{discord.utils.escape_markdown(g.name)[:40]}** · " + " · ".join(bits))
+    gone = sum(1 for gid in u.servers if gid not in joined)
+    body = "\n".join(totals) + "\n\n"
+    for i, row in enumerate(rows):
+        if len(body) + len(row) > 3900:
+            body += f"…and {len(rows) - i} more"
+            break
+        body += row + "\n"
+    if gone:
+        body += f"\n{gone} server(s) with history have removed PandaBot."
+    e.description = body
+    if u.top_week:
+        e.add_field(name="Top this week", value="\n".join(
+            f"{n}× {_fmt(t, a, None, 60)}" for t, a, n in u.top_week)[:1024], inline=False)
+    e.set_footer(text="Only you can see this · tools/usage.py has the raw numbers")
     return e
 
 
@@ -335,6 +420,7 @@ class CompanionBot(discord.Client):
         self.requests = RequestTracker()
         self._backfilling: set[int] = set()
         self._commands_registered = False
+        self._owner_ids: set[int] | None = None
         self._dm_blocked_noticed: dict[int, float] = {}
         self._music_bot_cache: dict[int, tuple[set[int], tuple[str, ...]]] = {}
         # (guild, bot) → last few messages and how they were read, for /musicbot check
@@ -363,9 +449,35 @@ class CompanionBot(discord.Client):
         log.info("/%s by %s", command.qualified_name, interaction.user)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
-        """Someone added PandaBot to a new server. Commands are global, so there's nothing to register."""
+        """Someone added PandaBot to a new server. Commands are global, so there's nothing to register;
+        post a short welcome so whoever added it knows that, and how saving works."""
         log.info("Joined server %s (%s)", guild.name, guild.id)
         self._log_setup_check(guild)
+        channel = welcome_channel(guild)
+        if channel is None:
+            return
+        try:
+            await channel.send(embed=welcome_embed(self.config.stats_prefix, setup_problems(guild, guild.me),
+                                                   self.config.support_server))
+        except discord.HTTPException as exc:
+            log.warning("Couldn't post the welcome in %s: %s", guild.id, exc)
+
+    async def is_owner(self, user: discord.abc.User) -> bool:
+        """The app's owner, or anyone on the team that owns it (from the Developer Portal)."""
+        if self._owner_ids is None:
+            app = await self.application_info()
+            self._owner_ids = {m.id for m in app.team.members} if app.team else {app.owner.id}
+        return user.id in self._owner_ids
+
+    async def send_usage(self, message: discord.Message) -> None:
+        """p!usage: the report goes to the owner's DMs, never into a server channel."""
+        try:
+            await message.author.send(embed=usage_embed(self))
+        except discord.HTTPException as exc:
+            log.warning("Couldn't DM the usage report: %s", exc)
+            return
+        if message.guild:
+            await message.add_reaction("📬")
 
     def _log_setup_check(self, guild: discord.Guild) -> None:
         problems = setup_problems(guild, guild.me)
@@ -440,6 +552,9 @@ class CompanionBot(discord.Client):
 
     # --- watching the music bot -----------------------------------------
     async def on_message(self, message: discord.Message) -> None:
+        if not message.author.bot and message.content.strip().lower() == f"{self.config.stats_prefix}usage":
+            if await self.is_owner(message.author):
+                return await self.send_usage(message)
         if not message.guild:
             return
         if not message.author.bot:
@@ -987,6 +1102,12 @@ def register_commands(bot: CompanionBot) -> None:
                            prefix: app_commands.Range[str, 1, 10] | None = None) -> None:
         if not music_bot.bot or music_bot.id == bot.user.id:
             await interaction.response.send_message("Pick a music **bot** (not a person, and not me).", ephemeral=True)
+            return
+        if bot.is_music_bot(music_bot):  # Jockie (every instance) is followed in every server already
+            await interaction.response.send_message(
+                f"**{music_bot.display_name}** is already followed automatically, in every server, so there's "
+                f"nothing to add. Play a song with it and I'll post a card in the voice channel's chat.\n"
+                f"Nothing showing up? Run `/setupcheck` to find channels I can't see.", ephemeral=True)
             return
         prefix = (prefix or "").strip() or None
         if prefix and " " in prefix:
